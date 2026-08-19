@@ -283,7 +283,7 @@ fn rotation_does_not_reopen_a_spent_nonce() {
     client.reset_smt_root(&f.operator, &0);
 
     // The nonce's leaf is empty again in the fresh tree, so the proof itself is
-    // sound — only the generation check stands in the way.
+    // sound; only the generation check stands in the way.
     let mut fresh = RefTree::new(&f.h.env);
     let (siblings, new_root) = fresh.spend(7);
     let replay =

@@ -1,4 +1,4 @@
-# Escrow Contract — Storage Layout & Authorization Flow
+# Escrow Contract, Storage Layout & Authorization Flow
 
 Design note for `contracts/escrow`. Behavioural spec lives in the workflow hub
 (`cell-protocol-workflow/docs/contract.md`); this note records what the code
@@ -36,8 +36,8 @@ must not bloat the instance footprint.
 ### Why `TotalLocked` is keyed by mint
 
 The contract can hold several assets at once. A single global total would let a
-release of asset B be backed by deposits of asset A — a direct path to draining
-custody of an asset nobody deposited. Keying by mint makes the backing invariant
+release of asset B be backed by deposits of asset A, which is a direct path to
+draining custody of an asset nobody deposited. Keying by mint makes the backing invariant
 hold per asset:
 
 > for every mint `m`: `TotalLocked(m)` == the contract's balance of `m`,
@@ -60,9 +60,9 @@ Three roles, each enforced by `require_auth` on a specific address:
 
 | Role | Established by | May call |
 |------|----------------|----------|
-| **Admin** | `initialize`, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint` |
+| **Admin** | `initialize`, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint`, `upgrade` |
 | **Operator** | `add_operator` | `release_funds`, `reset_smt_root` |
-| **User** | — | `deposit` (authorizing the transfer of their own funds) |
+| **User** |, | `deposit` (authorizing the transfer of their own funds) |
 
 ```
 initialize(admin) ──> Admin
@@ -108,8 +108,8 @@ cannot be initialized on someone's behalf.
 accepts nothing until the admin explicitly opens an asset, so the operator can
 finish wiring an instance before user funds can arrive.
 
-Blocking an asset stops new deposits *and* pauses releases of it — the intended
-lever for freezing an asset during an incident.
+Blocking an asset stops new deposits *and* pauses releases of it, which is the
+intended lever for freezing an asset during an incident.
 
 ## 5. The withdrawal SMT
 
@@ -124,7 +124,7 @@ operator decides *what* to pay, the tree ensures each nonce is paid *once*.
 | Node hash | `SHA256(left ‖ right)`, 64-byte input |
 | Empty leaf | 32 zero bytes |
 | Spent leaf | `SHA256([0x01; 32])` |
-| Empty root | `8fe6b168…2beb` — the empty leaf folded 16 times through `H(n, n)`, stored as a constant |
+| Empty root | `8fe6b168...2beb`, the empty leaf folded 16 times through `H(n, n)`, stored as a constant |
 | Leaf position | `nonce mod 2^16` |
 | Path order | **least-significant bit first** |
 
@@ -154,9 +154,9 @@ nonces.
 
 `release_funds` submits **one** sibling path and uses it twice:
 
-- against the current root, starting from the *empty* leaf — proving the nonce
+- against the current root, starting from the *empty* leaf, proving the nonce
   is unspent;
-- against `new_root`, starting from the *spent* leaf — proving `new_root` is the
+- against `new_root`, starting from the *spent* leaf, proving `new_root` is the
   current tree with exactly that one leaf flipped.
 
 Sharing the path is what makes the pair sound. Exclusion alone does not identify
@@ -171,12 +171,12 @@ happens to equal the target does not short-circuit the climb.
 This is a deliberate divergence from the reference implementation, which returns
 early on an intermediate match and has a test asserting that behaviour. Reaching
 the stored root before the last level requires a collision, so the practical
-difference is nil — but a proof that has not been walked to the top has not been
+difference is nil, but a proof that has not been walked to the top has not been
 verified. Every legitimate proof is treated identically by both.
 
 ### Cross-checking
 
-`vectors/smt_vectors.json` holds parameters and eight worked cases — empty tree,
+`vectors/smt_vectors.json` holds parameters and eight worked cases: empty tree,
 LSB-set nonces, the last leaf, a wrapped nonce, and paths with occupied
 siblings. The vectors are generated independently of this crate and the suite
 reproduces every value, so they pin down hash construction, empty-node
@@ -188,6 +188,26 @@ that code.
 
 An off-chain prover should be held to the same file.
 
+## 5b. Upgrades
+
+`upgrade(new_wasm_hash)` replaces the contract's own executable. The wasm must
+already be on the ledger; only its hash is passed. Admin-gated rather than
+operator-gated, because it can rewrite every rule in this document, including
+who the admin is.
+
+Storage is untouched by the swap, so the new executable inherits the admin, the
+operator set, the mint permissions, the locked totals and the tree. A release
+that changes the storage layout has to migrate it, in the same invocation or in
+a follow-up call.
+
+Two consequences worth stating plainly:
+
+- The admin key is as powerful as the contract. Anyone holding it can install
+  code that releases custody without a proof. Key custody is the control here,
+  not the contract.
+- A deployed instance without this entrypoint cannot be upgraded at all. The
+  first testnet deployment predates it and is stuck on its original code.
+
 ## 6. Events (indexer interface)
 
 Published via `#[contractevent]`, so the first topic is the struct name in lower
@@ -198,6 +218,7 @@ snake case and the data body is a `Map<Symbol, Val>` keyed by field name.
 | `Deposit` | `("deposit", from, mint)` | `amount`, `total_locked`, `ledger` |
 | `Release` | `("release", to, mint)` | `amount`, `nonce`, `new_root`, `ledger` |
 | `Rotate` | `("rotate",)` | `tree_index`, `new_root` |
+| `Upgraded` | `("upgraded",)` | `new_wasm_hash` |
 
 Addresses are topics so the indexer can subscribe per user or per asset; scalar
 payload is data. The exact XDR each event produces is asserted in
@@ -218,20 +239,20 @@ contract uses Soroban's snake_case convention; the mapping is one-to-one:
 | `ReleaseFunds` | `release_funds` |
 | `ResetSmtRoot` | `reset_smt_root` |
 
-`initialize` is a singleton, not a multi-instance factory — one deployed
+`initialize` is a singleton rather than a multi-instance factory: one deployed
 contract is one escrow. `cell-protocol-workflow/docs/contract.md` specifies the
 same shape.
 
 ## 8. Open issues
 
 1. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
-   constant, so a proof does not bind the recipient or the amount — those rest
+   constant, so a proof does not bind the recipient or the amount; both rest
    entirely on the operator's signature. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
 2. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
    behaviour and `empty_tree_root` matches the reference constant, so the
    algorithm is pinned. What does not exist anywhere is the component that
-   *generates* proofs — nothing can currently call `release_funds`.
+   *generates* proofs, so nothing can currently call `release_funds`.
 3. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
    `Deposit(user, id)` entry and a returned deposit id; the contract emits an
    event and tracks only the aggregate. Fine if the indexer is the system of
