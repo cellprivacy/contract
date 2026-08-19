@@ -6,4 +6,6 @@ use soroban_sdk::contracterror;
 pub enum EscrowError {
     AlreadyInitialized = 1,
     NotAuthorized = 2,
+    MintNotAllowed = 3,
+    InvalidAmount = 4,
 }

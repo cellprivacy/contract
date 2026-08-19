@@ -1,7 +1,7 @@
-use soroban_sdk::{contract, contractimpl, panic_with_error, Address, Env};
+use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, Env};
 
 use crate::error::EscrowError;
-use crate::storage;
+use crate::{event, storage};
 
 #[contract]
 pub struct EscrowContract;
@@ -44,9 +44,32 @@ impl EscrowContract {
         storage::set_allowed_mint(&e, &mint, false);
     }
 
+    // ---------- deposit ----------
+    pub fn deposit(e: Env, from: Address, mint: Address, amount: i128) {
+        from.require_auth();
+        if amount <= 0 {
+            panic_with_error!(&e, EscrowError::InvalidAmount);
+        }
+        if !storage::is_allowed_mint(&e, &mint) {
+            panic_with_error!(&e, EscrowError::MintNotAllowed);
+        }
+
+        let escrow = e.current_contract_address();
+        token::Client::new(&e, &mint).transfer(&from, &escrow, &amount);
+
+        let total = storage::get_total_locked(&e, &mint) + amount;
+        storage::set_total_locked(&e, &mint, total);
+
+        event::deposit(&e, &from, &mint, amount, total);
+    }
+
     // ---------- views ----------
     pub fn admin(e: Env) -> Address {
         storage::get_admin(&e)
+    }
+
+    pub fn total_locked(e: Env, mint: Address) -> i128 {
+        storage::get_total_locked(&e, &mint)
     }
 
     pub fn is_operator(e: Env, who: Address) -> bool {

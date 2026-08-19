@@ -13,6 +13,7 @@ pub(crate) const PERSISTENT_LIFETIME_THRESHOLD: u32 = PERSISTENT_BUMP_AMOUNT - D
 #[contracttype]
 pub enum DataKey {
     Admin,                // instance: Address
+    TotalLocked(Address), // persistent: i128, held per mint
     Operator(Address),    // persistent: bool
     AllowedMint(Address), // persistent: bool
 }

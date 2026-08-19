@@ -48,6 +48,18 @@ pub fn set_admin(e: &Env, admin: Address) {
     e.storage().instance().set(&DataKey::Admin, &admin);
 }
 
+// ----- TotalLocked (persistent, per mint) -----
+//
+// Custody is tracked per mint: the contract may hold several assets at once and
+// a release of one asset must never be backed by deposits of another.
+pub fn get_total_locked(e: &Env, mint: &Address) -> i128 {
+    get_persistent(e, &DataKey::TotalLocked(mint.clone())).unwrap_or(0)
+}
+
+pub fn set_total_locked(e: &Env, mint: &Address, v: i128) {
+    set_persistent(e, &DataKey::TotalLocked(mint.clone()), &v);
+}
+
 // ----- Operators (persistent) -----
 pub fn is_operator(e: &Env, op: &Address) -> bool {
     get_persistent(e, &DataKey::Operator(op.clone())).unwrap_or(false)
