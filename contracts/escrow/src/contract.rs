@@ -1,6 +1,7 @@
 use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, BytesN, Env, Vec};
 
 use crate::error::EscrowError;
+use crate::storage_types::MAX_TREE_LEAVES;
 use crate::{event, smt, storage};
 
 #[contract]
@@ -97,6 +98,13 @@ impl EscrowContract {
             panic_with_error!(&e, EscrowError::InsufficientLocked);
         }
 
+        // The nonce's generation is derived from the nonce itself, so a nonce
+        // settled under an earlier tree can never be replayed after a rotation,
+        // and two nonces sharing a leaf always sit in different generations.
+        if nonce / MAX_TREE_LEAVES != storage::get_tree_index(&e) {
+            panic_with_error!(&e, EscrowError::WrongTreeGeneration);
+        }
+
         // nonce must not spent in the current tree
         let current_root = storage::get_root(&e);
         if let Err(err) = smt::verify_exclusion(&e, &current_root, nonce, &siblings) {
@@ -119,9 +127,22 @@ impl EscrowContract {
     }
 
     // ---------- tree rotation ----------
-    pub fn reset_smt_root(e: Env) {
-        Self::require_admin(&e);
-        let idx = storage::get_tree_index(&e) + 1;
+    //
+    // Rotation is an operational step: the operator starts a new tree once the
+    // current generation's 65 536 nonces are used up. `expected_tree_index`
+    // makes it non-idempotent-safe — a second landing of the same rotation
+    // would otherwise advance the counter again and strand a whole generation
+    // of nonces.
+    pub fn reset_smt_root(e: Env, operator: Address, expected_tree_index: u64) {
+        operator.require_auth();
+        if !storage::is_operator(&e, &operator) {
+            panic_with_error!(&e, EscrowError::NotAuthorized);
+        }
+        if storage::get_tree_index(&e) != expected_tree_index {
+            panic_with_error!(&e, EscrowError::UnexpectedTreeIndex);
+        }
+
+        let idx = expected_tree_index + 1;
         let root = smt::empty_tree_root(&e);
         storage::set_tree_index(&e, idx);
         storage::set_root(&e, &root);
@@ -138,7 +159,7 @@ impl EscrowContract {
         storage::get_root(&e)
     }
 
-    pub fn tree_index(e: Env) -> u32 {
+    pub fn tree_index(e: Env) -> u64 {
         storage::get_tree_index(&e)
     }
 

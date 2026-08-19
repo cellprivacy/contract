@@ -191,25 +191,3 @@ fn the_previous_admin_loses_privilege_after_handover() {
         }])
         .add_operator(&operator);
 }
-
-#[test]
-fn reset_smt_root_clears_the_root_and_bumps_the_tree_index() {
-    let h = Harness::new();
-    let client = h.client();
-    let empty = smt::empty_tree_root(&h.env);
-
-    client.reset_smt_root();
-
-    assert_eq!(client.tree_index(), 1);
-    assert_eq!(client.root(), empty);
-
-    client.reset_smt_root();
-    assert_eq!(client.tree_index(), 2);
-}
-
-#[test]
-#[should_panic]
-fn reset_smt_root_requires_admin_auth() {
-    let h = Harness::new();
-    h.client().mock_auths(&[]).reset_smt_root();
-}

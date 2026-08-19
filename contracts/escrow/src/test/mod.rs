@@ -3,6 +3,7 @@
 mod admin;
 mod deposit;
 mod release;
+mod rotation;
 mod smt_proofs;
 mod vectors;
 
