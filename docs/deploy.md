@@ -103,8 +103,8 @@ stellar contract invoke --id $C --source <operator> --network testnet -- \
 
 | | |
 |---|---|
-| Contract | `CAIHS2Q5FJYEHNDNH2RXFPMIKIQXUOKZ7KYPHHM2SEPNPGIQ7RRGYS4D` |
-| Wasm hash | `c42ba80ba0e26a0f02ba5466fe44e2a4140da600dbbe73746ec97eaba0db7a8f` |
+| Contract | `CDORRV4DXCI73L23PG5IA7WAO4XH4WMGX3KOCCSOYAIMWW3A5C3DTJ36` |
+| Wasm hash | `f1de47d4f3503274cb98d23be91f3b139609b6149e5d945200b85e55b053ebf4` |
 | Network | Test SDF Network ; September 2015 |
 | Admin | `GCGSY4IOU7PG2QN2Z744ZVWMSZD5MYINLPKB5XSGQQECEU7NJBWUWO4Q` |
 | Operator | `GA4LOTZNKXSNACOM56YWMIUXEER3NRD7ABJFSPHZP5VOUNROGJZIST7G` |
@@ -114,29 +114,31 @@ Transactions, in order:
 
 | Step | Hash |
 |---|---|
-| Upload wasm | `805882d546241ab08eb99f7d8b09a74a1d71b878bf77f9203d6dd44cc8a77a42` |
-| Deploy | `02c6f993d93c1a723c8427e9b385dfaecc110bdda5b01340a02977a012a47b67` |
-| `initialize` | `e4749f451c1e3ac16d05445a926b8f1d420320966ac0f85b6710151367b43a59` |
-| `allow_mint` | `8386aede05602222ead516adbff1a4575c71ade59aec6ccdcc4997f966bda4a8` |
-| `add_operator` | `b500d71e853be0d093d63a3c0ee85580d5d86388b581de633d3a8555a2987c5e` |
-| `deposit` 100 XLM | `71823507bf56d8e96bafaf1131a6f330b4d49c0857a9e5f1f213d46221fd07f3` |
-| `release_funds` nonce 0, 30 XLM | `693ac5aa72a86eafd1d0b546d71fc765f2ecd85ac34856fdc1be899bc556b2c6` |
-| `reset_smt_root` to generation 1 | `72e1f87a1264c4a6dfe42c71c4e8a586b9202482e60bef3ed2281bff1ece3a51` |
-| `release_funds` nonce 65536, 10 XLM | `7e77e6afa0e1155ad048534b9a9887e6f4e36e495173b64a5409a5d77552ca8e` |
+| Upload wasm | `4bdeeb0be56365cb8b8e930c9950dd9ed6f1756d9f0d230027ab5bdb78083cd6` |
+| Deploy | `1bd8dca12c57c62b3cf20929c4c1a2c774eb96914943a31c657eaf5bb032c1cf` |
+| `initialize` | `71602a1386d44d185619ecca6c37b36365ba03cab683d03d7e3b55d6ed48e392` |
+| `allow_mint` | `4f77f0209e1eb69e64cfe56142d4a1bad54e20afe0e7debe75bdf6a5592d4047` |
+| `add_operator` | `bd511f602060620464c64748754f5c3149828eed17e4eeb5345ae82159afe80e` |
+| `deposit` 100 XLM | `4f9b1a4d86a17b307dfa889db6c2f70358d2a4a6fca95844f4763a8c593c8451` |
+| `release_funds` nonce 0, 30 XLM | `ef92b782cd3cccb464fa124d47af2b59e2bc4dc225c01f346b3e281e363ee34d` |
+| `reset_smt_root` to generation 1 | `9adcf092400cafcdfa140c683ca17565f1305aec06db54df2970682ab419832e` |
+| `release_funds` nonce 65536, 10 XLM | `920346e3f841a89143aaacb32c9d2b17da930525f6285eb9bcaa84f5d1344d18` |
 
-Explorer: `https://stellar.expert/explorer/testnet/contract/CAIHS2Q5FJYEHNDNH2RXFPMIKIQXUOKZ7KYPHHM2SEPNPGIQ7RRGYS4D`
+Explorer: `https://stellar.expert/explorer/testnet/contract/CDORRV4DXCI73L23PG5IA7WAO4XH4WMGX3KOCCSOYAIMWW3A5C3DTJ36`
 
-The release proofs were taken verbatim from `smt_vectors.json`, so that file is
-confirmed usable by an off-chain prover against a live network.
+`total_locked` reads back `600000000` stroops, and `root` on a fresh instance
+reads `8fe6b168…2beb`. The release proofs were taken verbatim from
+`smt_vectors.json`, so that file is confirmed usable by an off-chain prover
+against a live network.
 
-Rejections observed on the same instance, each simulated and refused before
+Rejections observed on the same instance, each refused at simulation before
 submission:
 
 | Attempt | Error |
 |---|---|
 | Replay `release_funds` with a spent nonce | `#6` `InvalidSmtProof` |
 | Replay `reset_smt_root` with a stale index | `#9` `UnexpectedTreeIndex` |
-| `release_funds` with a nonce from generation 0 after rotating to 1 | `#8` `WrongTreeGeneration` |
+| `release_funds` with a generation-0 nonce after rotating to 1 | `#8` `WrongTreeGeneration` |
 
 ### Mainnet
 
