@@ -45,7 +45,7 @@ pub fn empty_tree_root(e: &Env) -> BytesN<32> {
 /// left (`0`) or right (`1`) child. Off-chain proof generators must use the same
 /// order or every proof fails.
 ///
-/// The comparison happens only after the full climb — an intermediate node that
+/// The comparison happens only after the full climb. An intermediate node that
 /// happens to equal `target` does not shortcut verification.
 fn climb(
     e: &Env,
@@ -76,7 +76,7 @@ fn climb(
     }
 }
 
-/// Prove `nonce`'s leaf is still empty under `current_root` — i.e. the nonce has
+/// Prove `nonce`'s leaf is still empty under `current_root`, i.e. the nonce has
 /// not been spent in the active tree.
 pub fn verify_exclusion(
     e: &Env,

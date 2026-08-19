@@ -42,7 +42,7 @@ no hint which one.
 | Parameter | Value |
 |---|---|
 | Node hash | `SHA256(left ‖ right)`, raw 64-byte concatenation, no prefix |
-| Empty leaf | 32 zero bytes — not a hash |
+| Empty leaf | 32 zero bytes, not a hash |
 | Spent leaf | `SHA256([0x01; 32])` |
 | Height | 16, so 65 536 leaves per tree |
 | Leaf position | `nonce mod 65536` |
@@ -55,11 +55,11 @@ A most-significant-first generator produces paths that verify against nothing.
 
 The prover must expose:
 
-- `insert(nonce)` — mark spent, recompute the root, `O(16)`
-- `exclusion_proof(nonce) -> [[u8; 32]; 16]` — the sibling path, taken **before**
+- `insert(nonce)`: mark spent, recompute the root, `O(16)`
+- `exclusion_proof(nonce) -> [[u8; 32]; 16]`: the sibling path, taken **before**
   insertion
-- `remove(nonce)` — undo an insert when the transaction fails to land
-- `reset(tree_index)` — start a fresh tree
+- `remove(nonce)`: undo an insert when the transaction fails to land
+- `reset(tree_index)`: start a fresh tree
 - `root()`
 
 Sparse storage is what makes this cheap: keep only occupied positions and collapse
@@ -85,7 +85,7 @@ Postgres needs at least:
 
 **Reconcile on startup and after every failure.** Read `root()` and
 `tree_index()` from the contract and compare against the locally computed values.
-If they disagree, stop — do not submit. A prover that has drifted produces
+If they disagree, stop and do not submit. A prover that has drifted produces
 algorithmically valid proofs against the wrong tree, and every one is rejected.
 
 ### 2.3 Nonce allocation
@@ -100,9 +100,9 @@ So nonces run in blocks of 65 536, one block per generation:
 
 | Generation | Valid nonces |
 |---|---|
-| 0 | 0 … 65 535 |
-| 1 | 65 536 … 131 071 |
-| *n* | `n * 65536` … `n * 65536 + 65535` |
+| 0 | 0 ... 65 535 |
+| 1 | 65 536 ... 131 071 |
+| *n* | `n * 65536` ... `n * 65536 + 65535` |
 
 Allocate them monotonically inside the current block and never reuse one. When
 the block is exhausted, rotate.
@@ -153,7 +153,7 @@ generation being replaced; if it does not match, the call is rejected with
 `UnexpectedTreeIndex` (`#9`). That guard exists because a rotation landing twice
 would advance the counter again and strand a whole generation.
 
-Rotating early is safe for the contract but throws away the rest of the block —
+Rotating early is safe for the contract but throws away the rest of the block:
 any nonce already allocated and not yet settled becomes unusable.
 
 ## 4. Events
@@ -183,8 +183,8 @@ a Soroban invocation. Two things need repointing:
   withdraw contract that does not exist. Withdrawals go through the escrow's
   `release_funds`.
 - The argument encoding for `release_funds` is
-  `(Address, Address, Address, i128, u64, BytesN<32>, Vec<BytesN<32>>)` —
-  operator, mint, to, amount, nonce, new_root, siblings.
+  `(Address, Address, Address, i128, u64, BytesN<32>, Vec<BytesN<32>>)`, in
+  order: operator, mint, to, amount, nonce, new_root, siblings.
 
 Simulation is where a bad proof surfaces: the contract error comes back from
 `simulateTransaction` before anything is submitted, so a failed proof costs
@@ -205,7 +205,7 @@ nothing. Treat a simulation error as final and do not retry the same proof.
 | 9 | `UnexpectedTreeIndex` | rotation submitted against a stale index |
 
 `#6` is the ambiguous one. Before suspecting the contract, check the prover
-against `smt_vectors.json` — if those pass, the problem is tree state, not the
+against `smt_vectors.json`, if those pass, the problem is tree state, not the
 algorithm.
 
 ## 7. Trust boundary
@@ -214,7 +214,7 @@ The tree stops a withdrawal being settled twice. It does **not** authorize the
 withdrawal: the spent leaf is a constant, so a proof binds neither recipient nor
 amount. Both rest entirely on the operator's signature.
 
-An operator that signs a wrong payout is not caught by the contract — only the
+An operator that signs a wrong payout is not caught by the contract, only the
 totals are, since a release can never exceed `TotalLocked` for that asset. That is
 the v1 model: the operator is trusted to be honest and bounded to be solvent. See
 `escrow-design.md` §8 for what changing this would take.
