@@ -4,6 +4,7 @@ mod admin;
 mod deposit;
 mod release;
 mod smt_proofs;
+mod vectors;
 
 use std::collections::BTreeSet;
 use std::vec::Vec as StdVec;
