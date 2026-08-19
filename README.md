@@ -24,8 +24,10 @@ cargo test              # unit tests
 stellar contract build  # compile to WASM
 ```
 
-## Design
+## Docs
 
-[`docs/escrow-design.md`](docs/escrow-design.md) — storage layout and storage
-classes, the authorization flow, the SMT parameters an off-chain prover has to
-match, and the open issues.
+- [`docs/escrow-design.md`](docs/escrow-design.md) — storage layout and storage
+  classes, the authorization flow, the SMT parameters an off-chain prover has to
+  match, and the open issues.
+- [`docs/deploy.md`](docs/deploy.md) — build, deploy and wiring, plus the
+  current testnet deployment.

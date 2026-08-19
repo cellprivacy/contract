@@ -11,4 +11,8 @@ pub enum EscrowError {
     InvalidProofLength = 5,
     InvalidSmtProof = 6,
     InsufficientLocked = 7,
+    /// The nonce does not belong to the tree generation currently installed.
+    WrongTreeGeneration = 8,
+    /// The rotation was submitted against a stale tree index.
+    UnexpectedTreeIndex = 9,
 }

@@ -28,7 +28,7 @@ must not bloat the instance footprint.
 |-----|-------|------|---------|
 | `Admin` | instance | `Address` | Sole holder of privileged configuration rights |
 | `Root` | instance | `BytesN<32>` | Root of the active withdrawal SMT |
-| `TreeIndex` | instance | `u32` | Generation counter, bumped on rotation |
+| `TreeIndex` | instance | `u64` | Generation counter, bumped on rotation |
 | `TotalLocked(mint)` | persistent | `i128` | Assets under custody, **per asset** |
 | `Operator(address)` | persistent | `bool` | Membership in the operator set |
 | `AllowedMint(mint)` | persistent | `bool` | Whether the asset may be deposited |
@@ -60,8 +60,8 @@ Three roles, each enforced by `require_auth` on a specific address:
 
 | Role | Established by | May call |
 |------|----------------|----------|
-| **Admin** | `initialize`, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint`, `reset_smt_root` |
-| **Operator** | `add_operator` | `release_funds` |
+| **Admin** | `initialize`, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint` |
+| **Operator** | `add_operator` | `release_funds`, `reset_smt_root` |
 | **User** | — | `deposit` (authorizing the transfer of their own funds) |
 
 ```
@@ -69,13 +69,16 @@ initialize(admin) ──> Admin
      │
      ├─ allow_mint(mint) ─────────> deposits of `mint` accepted
      ├─ add_operator(op) ─────────> `op` may release
-     ├─ set_new_admin(next) ──────> privilege moves, atomically
-     └─ reset_smt_root() ─────────> new empty tree, TreeIndex + 1
+     └─ set_new_admin(next) ──────> privilege moves, atomically
 
 user ── deposit(from, mint, amount) ── require_auth(from)
           └─ transfer(from -> escrow), TotalLocked(mint) += amount, emit Deposit
 
+operator ── reset_smt_root(expected) ── require_auth + operator-set check
+          └─ new empty tree, TreeIndex + 1
+
 operator ── release_funds(..) ── require_auth(operator) + operator-set check
+          ├─ generation check: nonce / MAX_TREE_LEAVES == TreeIndex
           ├─ exclusion proof: nonce's leaf is empty under the current Root
           ├─ inclusion proof: same path with that leaf spent yields new_root
           └─ transfer(escrow -> to), TotalLocked(mint) -= amount, Root = new_root
@@ -129,6 +132,25 @@ Path order is the detail most likely to break an off-chain prover: at level `l`,
 bit `l` of the leaf position decides whether the running node is the left (`0`)
 or right (`1`) child. A most-significant-first generator produces paths that
 verify against nothing.
+
+### Generations
+
+A nonce carries its own generation: `nonce / MAX_TREE_LEAVES` must equal the
+installed `TreeIndex`. Nonces are therefore allocated in blocks of 65 536, one
+block per tree, and the rule does three things at once:
+
+- a nonce settled under an earlier tree cannot be replayed after a rotation,
+  even though its leaf is empty again in the fresh tree;
+- two nonces that share a leaf (`n` and `n + 65 536`) always sit in different
+  generations, so the wrap-around can never collide inside one tree;
+- an operator cannot spend ahead into a generation that has not been installed.
+
+Rotation is correspondingly guarded: `reset_smt_root` takes the tree index it
+expects to be replacing and refuses a stale one, because a second landing of the
+same rotation would advance the counter again and strand a whole generation of
+nonces.
+
+### Proof structure
 
 `release_funds` submits **one** sibling path and uses it twice:
 
@@ -202,28 +224,22 @@ same shape.
 
 ## 8. Open issues
 
-1. **Rotation re-opens spent nonces.** `reset_smt_root` installs a fresh empty
-   root, after which every nonce settled in an earlier tree verifies as unspent
-   again. Nothing binds a spent marker to the `TreeIndex` it was recorded under.
-   Fix by mixing `TreeIndex` into the leaf pre-image, or by requiring nonces to
-   be globally monotonic across rotations. Test written and `#[ignore]`d:
-   `rotation_must_not_reopen_a_spent_nonce`.
-2. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
+1. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
    constant, so a proof does not bind the recipient or the amount — those rest
    entirely on the operator's signature. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
-3. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
+2. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
    behaviour and `empty_tree_root` matches the reference constant, so the
    algorithm is pinned. What does not exist anywhere is the component that
    *generates* proofs — nothing can currently call `release_funds`.
-4. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
+3. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
    `Deposit(user, id)` entry and a returned deposit id; the contract emits an
    event and tracks only the aggregate. Fine if the indexer is the system of
    record, but the two specs should be reconciled.
-5. **The backend's event decoding does not match.** `cell-protocol`'s indexer
+4. **The backend's event decoding does not match.** `cell-protocol`'s indexer
    routes on `"Deposit"`/`"Settlement"` and reads `from`/`amount` from the data
    map; this contract emits `"deposit"`/`"release"` with `from` as a topic. The
    dispatch and handlers need updating against §6 above.
-6. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
+5. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
    encodes a provisional `settle(batch_id, total)` against the withdraw
    contract, which is not yet written.

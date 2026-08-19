@@ -17,7 +17,7 @@ pub const MAX_TREE_LEAVES: u64 = 1 << TREE_HEIGHT; // 65_536
 pub enum DataKey {
     Admin,                // instance: Address
     Root,                 // instance: BytesN<32>  (withdrawal_transactions_root)
-    TreeIndex,            // instance: u32
+    TreeIndex,            // instance: u64
     TotalLocked(Address), // persistent: i128, held per mint
     Operator(Address),    // persistent: bool
     AllowedMint(Address), // persistent: bool

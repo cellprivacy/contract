@@ -6,6 +6,7 @@ use soroban_sdk::testutils::{Address as _, Events as _};
 use soroban_sdk::{Address, Vec};
 
 use super::{Harness, RefTree};
+use crate::storage_types::MAX_TREE_LEAVES;
 use crate::Release;
 
 /// An escrow holding `locked` of the primary asset, with one registered
@@ -268,13 +269,10 @@ fn release_publishes_the_settlement_event() {
     );
 }
 
-/// Known gap — see `docs/escrow-design.md` §"Open issues". `reset_smt_root`
-/// installs a fresh empty root, which makes every previously spent nonce
-/// verifiable again. Enable once rotation binds spent markers to the tree
-/// index (or nonces are made globally monotonic).
+/// A nonce belongs to the generation `nonce / MAX_TREE_LEAVES`, so one settled
+/// under an earlier tree cannot be replayed once the tree has rotated.
 #[test]
-#[ignore = "known gap: rotation re-opens nonces spent in an earlier tree"]
-fn rotation_must_not_reopen_a_spent_nonce() {
+fn rotation_does_not_reopen_a_spent_nonce() {
     let mut f = Funded::new(1_000);
     let client = f.h.client();
     let to = Address::generate(&f.h.env);
@@ -282,25 +280,91 @@ fn rotation_must_not_reopen_a_spent_nonce() {
     let (siblings, new_root) = f.tree.spend(7);
     client.release_funds(&f.operator, &f.h.mint, &to, &300, &7, &new_root, &siblings);
 
-    client.reset_smt_root();
+    client.reset_smt_root(&f.operator, &0);
 
+    // The nonce's leaf is empty again in the fresh tree, so the proof itself is
+    // sound — only the generation check stands in the way.
     let mut fresh = RefTree::new(&f.h.env);
-    let siblings = fresh.proof(7);
-    fresh.mark_spent(7);
-    let replayed_root = fresh.root();
-
-    let replay = client.try_release_funds(
-        &f.operator,
-        &f.h.mint,
-        &to,
-        &300,
-        &7,
-        &replayed_root,
-        &siblings,
-    );
+    let (siblings, new_root) = fresh.spend(7);
+    let replay =
+        client.try_release_funds(&f.operator, &f.h.mint, &to, &300, &7, &new_root, &siblings);
 
     assert!(
         replay.is_err(),
         "nonce 7 was spendable again after rotation"
+    );
+    assert_eq!(f.h.balance_of(&to), 300);
+}
+
+/// After rotating, withdrawals draw on the next block of nonces.
+#[test]
+fn the_next_generation_of_nonces_is_spendable_after_rotation() {
+    let mut f = Funded::new(1_000);
+    let client = f.h.client();
+    let to = Address::generate(&f.h.env);
+
+    let (siblings, new_root) = f.tree.spend(7);
+    client.release_funds(&f.operator, &f.h.mint, &to, &300, &7, &new_root, &siblings);
+
+    client.reset_smt_root(&f.operator, &0);
+
+    let mut next = RefTree::new(&f.h.env);
+    let nonce = MAX_TREE_LEAVES + 7;
+    let (siblings, new_root) = next.spend(nonce);
+    client.release_funds(
+        &f.operator,
+        &f.h.mint,
+        &to,
+        &200,
+        &nonce,
+        &new_root,
+        &siblings,
+    );
+
+    assert_eq!(f.h.balance_of(&to), 500);
+    assert_eq!(client.total_locked(&f.h.mint), 500);
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn release_rejects_a_nonce_from_a_later_generation() {
+    let mut f = Funded::new(1_000);
+    let to = Address::generate(&f.h.env);
+    let nonce = MAX_TREE_LEAVES + 7;
+    let (siblings, new_root) = f.tree.spend(nonce);
+
+    f.h.client().release_funds(
+        &f.operator,
+        &f.h.mint,
+        &to,
+        &300,
+        &nonce,
+        &new_root,
+        &siblings,
+    );
+}
+
+/// Two nonces sharing a leaf always sit in different generations, so the
+/// wrap-around can never collide inside one tree.
+#[test]
+#[should_panic(expected = "Error(Contract, #8)")]
+fn a_wrapped_nonce_cannot_reuse_a_leaf_in_the_same_tree() {
+    let mut f = Funded::new(1_000);
+    let client = f.h.client();
+    let to = Address::generate(&f.h.env);
+
+    let (siblings, new_root) = f.tree.spend(7);
+    client.release_funds(&f.operator, &f.h.mint, &to, &300, &7, &new_root, &siblings);
+
+    let wrapped = MAX_TREE_LEAVES + 7;
+    let (siblings, new_root) = f.tree.spend(wrapped);
+    client.release_funds(
+        &f.operator,
+        &f.h.mint,
+        &to,
+        &300,
+        &wrapped,
+        &new_root,
+        &siblings,
     );
 }
