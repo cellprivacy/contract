@@ -57,10 +57,10 @@ pub fn set_root(e: &Env, root: &BytesN<32>) {
 }
 
 // ----- TreeIndex -----
-pub fn get_tree_index(e: &Env) -> u32 {
+pub fn get_tree_index(e: &Env) -> u64 {
     e.storage().instance().get(&DataKey::TreeIndex).unwrap_or(0)
 }
-pub fn set_tree_index(e: &Env, i: u32) {
+pub fn set_tree_index(e: &Env, i: u64) {
     e.storage().instance().set(&DataKey::TreeIndex, &i);
 }
 

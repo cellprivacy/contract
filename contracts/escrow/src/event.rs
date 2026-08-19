@@ -40,7 +40,7 @@ pub struct Release {
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rotate {
-    pub tree_index: u32,
+    pub tree_index: u64,
     pub new_root: BytesN<32>,
 }
 
@@ -74,7 +74,7 @@ pub fn release(
     .publish(e);
 }
 
-pub fn rotate(e: &Env, tree_index: u32, new_root: BytesN<32>) {
+pub fn rotate(e: &Env, tree_index: u64, new_root: BytesN<32>) {
     Rotate {
         tree_index,
         new_root,
