@@ -57,11 +57,15 @@ impl EscrowContract {
             panic_with_error!(&e, EscrowError::MintNotAllowed);
         }
 
-        let escrow = e.current_contract_address();
-        token::Client::new(&e, &mint).transfer(&from, &escrow, &amount);
-
+        // State first, then the asset moves. Soroban rejects reentry into a
+        // contract already on the call stack, so this is defence in depth
+        // against a custom token contract rather than a live hole — but the
+        // token is the one address here we do not control.
         let total = storage::get_total_locked(&e, &mint) + amount;
         storage::set_total_locked(&e, &mint, total);
+
+        let escrow = e.current_contract_address();
+        token::Client::new(&e, &mint).transfer(&from, &escrow, &amount);
 
         event::deposit(&e, &from, &mint, amount, total);
     }
@@ -116,12 +120,14 @@ impl EscrowContract {
             panic_with_error!(&e, err);
         }
 
-        let escrow = e.current_contract_address();
-        token::Client::new(&e, &mint).transfer(&escrow, &to, &amount);
-
+        // The nonce is spent and the custody is debited before anything is
+        // paid out, so the proof cannot be replayed from inside the transfer.
         storage::set_root(&e, &new_root);
         storage::set_total_locked(&e, &mint, total - amount);
         storage::extend_instance(&e);
+
+        let escrow = e.current_contract_address();
+        token::Client::new(&e, &mint).transfer(&escrow, &to, &amount);
 
         event::release(&e, &to, &mint, amount, nonce, new_root);
     }
