@@ -10,3 +10,9 @@ mod storage_types;
 pub use contract::{EscrowContract, EscrowContractClient};
 pub use error::EscrowError;
 pub use event::{Deposit, Release, Rotate};
+
+#[cfg(test)]
+extern crate std;
+
+#[cfg(test)]
+mod test;
