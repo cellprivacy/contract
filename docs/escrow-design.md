@@ -121,7 +121,7 @@ operator decides *what* to pay, the tree ensures each nonce is paid *once*.
 | Node hash | `SHA256(left ‖ right)`, 64-byte input |
 | Empty leaf | 32 zero bytes |
 | Spent leaf | `SHA256([0x01; 32])` |
-| Empty root | the empty leaf folded 16 times through `H(n, n)` |
+| Empty root | `8fe6b168…2beb` — the empty leaf folded 16 times through `H(n, n)`, stored as a constant |
 | Leaf position | `nonce mod 2^16` |
 | Path order | **least-significant bit first** |
 
@@ -145,6 +145,26 @@ each position, so the nonce cannot be swapped
 
 Verification compares only the final computed root. An intermediate node that
 happens to equal the target does not short-circuit the climb.
+
+This is a deliberate divergence from the reference implementation, which returns
+early on an intermediate match and has a test asserting that behaviour. Reaching
+the stored root before the last level requires a collision, so the practical
+difference is nil — but a proof that has not been walked to the top has not been
+verified. Every legitimate proof is treated identically by both.
+
+### Cross-checking
+
+`vectors/smt_vectors.json` holds parameters and eight worked cases — empty tree,
+LSB-set nonces, the last leaf, a wrapped nonce, and paths with occupied
+siblings. The vectors are generated independently of this crate and the suite
+reproduces every value, so they pin down hash construction, empty-node
+convention and bit ordering at once.
+
+`empty_tree_root` matches the reference implementation's hard-coded constant
+byte for byte, which is the strongest single check available without running
+that code.
+
+An off-chain prover should be held to the same file.
 
 ## 6. Events (indexer interface)
 
@@ -192,11 +212,10 @@ same shape.
    constant, so a proof does not bind the recipient or the amount — those rest
    entirely on the operator's signature. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
-3. **No reference test vectors.** The SMT is tested against a reference tree
-   built in `src/test/mod.rs` from the same primitives, which proves internal
-   consistency but not agreement with the Solana reference implementation.
-   Cross-checking needs the reference's hash construction, empty-node
-   convention, and bit order confirmed.
+3. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
+   behaviour and `empty_tree_root` matches the reference constant, so the
+   algorithm is pinned. What does not exist anywhere is the component that
+   *generates* proofs — nothing can currently call `release_funds`.
 4. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
    `Deposit(user, id)` entry and a returned deposit id; the contract emits an
    event and tracks only the aggregate. Fine if the indexer is the system of
