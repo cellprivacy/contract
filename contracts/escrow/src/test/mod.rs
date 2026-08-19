@@ -5,6 +5,7 @@ mod deposit;
 mod release;
 mod rotation;
 mod smt_proofs;
+mod upgrade;
 mod vectors;
 
 use std::collections::BTreeSet;
@@ -113,8 +114,8 @@ impl RefTree {
         self.node(TREE_HEIGHT, 0)
     }
 
-    /// Sibling path for `nonce`, least-significant bit first — the order
-    /// [`crate::smt`] walks.
+    /// Sibling path for `nonce`, least-significant bit first, which is the
+    /// order [`crate::smt`] walks.
     pub fn proof(&self, nonce: u64) -> Vec<BytesN<32>> {
         let position = Self::position(nonce);
         let mut out = Vec::new(&self.env);
