@@ -1,5 +1,5 @@
 //! Initialization, admin handover, operator management, mint gating, and tree
-//! rotation — the admin/operator control surface.
+//! rotation: the admin and operator control surface.
 
 use soroban_sdk::testutils::{Address as _, MockAuth, MockAuthInvoke};
 use soroban_sdk::{Address, IntoVal};
@@ -143,7 +143,7 @@ fn block_mint_requires_admin_auth() {
     h.client().mock_auths(&[]).block_mint(&h.mint);
 }
 
-/// After handover the new admin holds the privilege — verified by having the
+/// After handover the new admin holds the privilege, verified by having the
 /// new admin sign a call that only the admin may make.
 #[test]
 fn handover_moves_privilege_to_the_new_admin() {

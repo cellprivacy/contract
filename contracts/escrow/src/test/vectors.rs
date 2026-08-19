@@ -2,8 +2,8 @@
 //!
 //! The vectors are generated independently of this crate. Reproducing every
 //! value here proves the contract's tree agrees with an outside implementation
-//! on hash construction, empty-node convention and bit ordering — the three
-//! things a proof generator can silently get wrong. Any off-chain prover should
+//! on hash construction, empty-node convention and bit ordering, which are the
+//! three things a proof generator can silently get wrong. Any off-chain prover should
 //! be held to the same file.
 
 use soroban_sdk::{BytesN, Env, Vec};

@@ -59,7 +59,7 @@ impl EscrowContract {
 
         // State first, then the asset moves. Soroban rejects reentry into a
         // contract already on the call stack, so this is defence in depth
-        // against a custom token contract rather than a live hole — but the
+        // against a custom token contract rather than a live hole, but the
         // token is the one address here we do not control.
         let total = storage::get_total_locked(&e, &mint) + amount;
         storage::set_total_locked(&e, &mint, total);
@@ -136,9 +136,8 @@ impl EscrowContract {
     //
     // Rotation is an operational step: the operator starts a new tree once the
     // current generation's 65 536 nonces are used up. `expected_tree_index`
-    // makes it non-idempotent-safe — a second landing of the same rotation
-    // would otherwise advance the counter again and strand a whole generation
-    // of nonces.
+    // guards against a duplicate landing, which would otherwise advance the
+    // counter again and strand a whole generation of nonces.
     pub fn reset_smt_root(e: Env, operator: Address, expected_tree_index: u64) {
         operator.require_auth();
         if !storage::is_operator(&e, &operator) {
@@ -154,6 +153,24 @@ impl EscrowContract {
         storage::set_root(&e, &root);
         storage::extend_instance(&e);
         event::rotate(&e, idx, root);
+    }
+
+    // ---------- upgrade ----------
+    //
+    // Replaces the contract's own executable. The wasm must already be uploaded
+    // to the ledger; only its hash is passed here. Admin-gated rather than
+    // operator-gated because it can change every rule in this file, including
+    // who the admin is.
+    //
+    // Storage is untouched, so the new executable inherits the admin, the
+    // operator set, the mint permissions, the locked totals and the tree. A
+    // release that changes the storage layout has to migrate it in the same
+    // invocation or in a follow-up call.
+    pub fn upgrade(e: Env, new_wasm_hash: BytesN<32>) {
+        Self::require_admin(&e);
+        storage::extend_instance(&e);
+        event::upgraded(&e, new_wasm_hash.clone());
+        e.deployer().update_current_contract_wasm(new_wasm_hash);
     }
 
     // ---------- views ----------

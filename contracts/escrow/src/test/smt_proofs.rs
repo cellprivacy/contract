@@ -87,9 +87,9 @@ fn a_proof_does_not_transfer_to_another_subtree() {
 }
 
 /// Two empty sibling leaves share a sibling path, and `H(empty, empty)` is
-/// order-independent, so a single exclusion proof covers both. That is sound —
-/// both leaves really are unspent — but it means exclusion alone does not pin
-/// down *which* leaf a withdrawal refers to.
+/// order-independent, so a single exclusion proof covers both. That is sound,
+/// since both leaves really are unspent, but it means exclusion alone does not
+/// pin down *which* leaf a withdrawal refers to.
 ///
 /// The inclusion half is what binds the nonce: spending either leaf with the
 /// same path yields a different `new_root`, so `release_funds` cannot be made

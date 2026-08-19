@@ -2,7 +2,7 @@ use soroban_sdk::{contractevent, Address, BytesN, Env};
 
 /// Emitted when a user locks assets in escrow.
 ///
-/// Topics: `("deposit", from, mint)` — both addresses are indexed so the
+/// Topics: `("deposit", from, mint)`. Both addresses are indexed so the
 /// off-chain indexer can subscribe per user or per asset.
 /// Data: a map of `amount`, `total_locked`, `ledger`.
 #[contractevent]
@@ -80,4 +80,17 @@ pub fn rotate(e: &Env, tree_index: u64, new_root: BytesN<32>) {
         new_root,
     }
     .publish(e);
+}
+
+/// Emitted when the admin replaces the contract executable.
+///
+/// Topics: `("upgraded",)`. Data: a map of `new_wasm_hash`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Upgraded {
+    pub new_wasm_hash: BytesN<32>,
+}
+
+pub fn upgraded(e: &Env, new_wasm_hash: BytesN<32>) {
+    Upgraded { new_wasm_hash }.publish(e);
 }
