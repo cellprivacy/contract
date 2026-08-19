@@ -1,4 +1,4 @@
-use soroban_sdk::{contractevent, Address, Env};
+use soroban_sdk::{contractevent, Address, BytesN, Env};
 
 /// Emitted when a user locks assets in escrow.
 ///
@@ -17,6 +17,33 @@ pub struct Deposit {
     pub ledger: u32,
 }
 
+/// Emitted when an operator releases custody back to a user.
+///
+/// Topics: `("release", to, mint)`.
+/// Data: a map of `amount`, `nonce`, `new_root`, `ledger`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Release {
+    #[topic]
+    pub to: Address,
+    #[topic]
+    pub mint: Address,
+    pub amount: i128,
+    pub nonce: u64,
+    pub new_root: BytesN<32>,
+    pub ledger: u32,
+}
+
+/// Emitted when the admin rotates the withdrawal tree.
+///
+/// Topics: `("rotate",)`. Data: a map of `tree_index`, `new_root`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Rotate {
+    pub tree_index: u32,
+    pub new_root: BytesN<32>,
+}
+
 pub fn deposit(e: &Env, from: &Address, mint: &Address, amount: i128, total_locked: i128) {
     Deposit {
         from: from.clone(),
@@ -24,6 +51,33 @@ pub fn deposit(e: &Env, from: &Address, mint: &Address, amount: i128, total_lock
         amount,
         total_locked,
         ledger: e.ledger().sequence(),
+    }
+    .publish(e);
+}
+
+pub fn release(
+    e: &Env,
+    to: &Address,
+    mint: &Address,
+    amount: i128,
+    nonce: u64,
+    new_root: BytesN<32>,
+) {
+    Release {
+        to: to.clone(),
+        mint: mint.clone(),
+        amount,
+        nonce,
+        new_root,
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
+}
+
+pub fn rotate(e: &Env, tree_index: u32, new_root: BytesN<32>) {
+    Rotate {
+        tree_index,
+        new_root,
     }
     .publish(e);
 }

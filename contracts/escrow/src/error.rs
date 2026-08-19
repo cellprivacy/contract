@@ -8,4 +8,7 @@ pub enum EscrowError {
     NotAuthorized = 2,
     MintNotAllowed = 3,
     InvalidAmount = 4,
+    InvalidProofLength = 5,
+    InvalidSmtProof = 6,
+    InsufficientLocked = 7,
 }

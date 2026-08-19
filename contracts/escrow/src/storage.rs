@@ -1,4 +1,4 @@
-use soroban_sdk::{Address, Env};
+use soroban_sdk::{Address, BytesN, Env};
 
 use crate::storage_types::{
     DataKey, INSTANCE_BUMP_AMOUNT, INSTANCE_LIFETIME_THRESHOLD, PERSISTENT_BUMP_AMOUNT,
@@ -46,6 +46,22 @@ pub fn get_admin(e: &Env) -> Address {
 
 pub fn set_admin(e: &Env, admin: Address) {
     e.storage().instance().set(&DataKey::Admin, &admin);
+}
+
+// ----- Root -----
+pub fn get_root(e: &Env) -> BytesN<32> {
+    e.storage().instance().get(&DataKey::Root).unwrap()
+}
+pub fn set_root(e: &Env, root: &BytesN<32>) {
+    e.storage().instance().set(&DataKey::Root, root);
+}
+
+// ----- TreeIndex -----
+pub fn get_tree_index(e: &Env) -> u32 {
+    e.storage().instance().get(&DataKey::TreeIndex).unwrap_or(0)
+}
+pub fn set_tree_index(e: &Env, i: u32) {
+    e.storage().instance().set(&DataKey::TreeIndex, &i);
 }
 
 // ----- TotalLocked (persistent, per mint) -----
