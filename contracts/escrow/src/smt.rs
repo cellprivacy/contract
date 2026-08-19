@@ -22,15 +22,19 @@ pub fn non_empty_leaf(e: &Env) -> BytesN<32> {
         .to_bytes()
 }
 
-pub fn empty_tree_root(e: &Env) -> BytesN<32> {
-    let mut node = empty_leaf(e);
-    let mut level = 0;
-    while level < TREE_HEIGHT {
-        node = hash_combine(e, &node, &node);
-        level += 1;
-    }
+/// Root of an all-empty tree: the empty leaf folded through `H(n, n)`
+/// `TREE_HEIGHT` times.
+///
+/// Precomputed so `initialize` and `reset_smt_root` do not pay sixteen hashes
+/// each. `the_empty_root_is_the_expected_fold` recomputes the fold and fails if
+/// this constant ever drifts from `TREE_HEIGHT`.
+pub const EMPTY_TREE_ROOT: [u8; 32] = [
+    0x8f, 0xe6, 0xb1, 0x68, 0x92, 0x56, 0xc0, 0xd3, 0x85, 0xf4, 0x2f, 0x5b, 0xbe, 0x20, 0x27, 0xa2,
+    0x2c, 0x19, 0x96, 0xe1, 0x10, 0xba, 0x97, 0xc1, 0x71, 0xd3, 0xe5, 0x94, 0x8d, 0xe9, 0x2b, 0xeb,
+];
 
-    node
+pub fn empty_tree_root(e: &Env) -> BytesN<32> {
+    BytesN::from_array(e, &EMPTY_TREE_ROOT)
 }
 
 /// Walk `start` up `TREE_HEIGHT` levels using `siblings` and check the computed
