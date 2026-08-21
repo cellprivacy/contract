@@ -4,7 +4,8 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
-    AlreadyInitialized = 1,
+    // 1 was AlreadyInitialized, retired when initialization moved into the
+    // constructor. Codes are not reused.
     NotAuthorized = 2,
     MintNotAllowed = 3,
     InvalidAmount = 4,

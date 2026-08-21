@@ -36,10 +36,6 @@ fn set_persistent<V: soroban_sdk::IntoVal<Env, soroban_sdk::Val>>(
 }
 
 // ----- Admin -----
-pub fn has_admin(e: &Env) -> bool {
-    e.storage().instance().has(&DataKey::Admin)
-}
-
 pub fn get_admin(e: &Env) -> Address {
     e.storage().instance().get(&DataKey::Admin).unwrap()
 }

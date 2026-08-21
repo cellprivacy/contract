@@ -9,10 +9,11 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    pub fn initialize(e: Env, admin: Address) {
-        if storage::has_admin(&e) {
-            panic_with_error!(&e, EscrowError::AlreadyInitialized);
-        }
+    // Runs inside the deployment transaction, called by the host and never
+    // reachable afterwards. Initializing in a follow-up call would leave the
+    // contract on chain with no admin for at least one ledger, long enough for
+    // anyone watching to claim it as their own.
+    pub fn __constructor(e: Env, admin: Address) {
         admin.require_auth();
         storage::set_admin(&e, admin);
         storage::set_root(&e, &smt::empty_tree_root(&e));

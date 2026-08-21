@@ -198,7 +198,6 @@ nothing. Treat a simulation error as final and do not retry the same proof.
 
 | Code | Meaning | Usual cause |
 |---|---|---|
-| 1 | `AlreadyInitialized` | double `initialize` |
 | 2 | `NotAuthorized` | caller is not a registered operator |
 | 3 | `MintNotAllowed` | asset never allowed, or blocked mid-flight |
 | 4 | `InvalidAmount` | amount ≤ 0 |

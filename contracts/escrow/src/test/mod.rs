@@ -16,6 +16,7 @@ use soroban_sdk::testutils::Address as _;
 use soroban_sdk::token::StellarAssetClient;
 use soroban_sdk::{Address, BytesN, Env, Vec};
 
+use crate::contract::EscrowContractArgs;
 use crate::smt::{empty_leaf, hash_combine, non_empty_leaf};
 use crate::storage_types::{MAX_TREE_LEAVES, TREE_HEIGHT};
 use crate::{EscrowContract, EscrowContractClient};
@@ -37,12 +38,10 @@ impl Harness {
         env.mock_all_auths();
 
         let admin = Address::generate(&env);
-        let escrow = env.register(EscrowContract, ());
+        let escrow = env.register(EscrowContract, EscrowContractArgs::__constructor(&admin));
         let mint = env
             .register_stellar_asset_contract_v2(admin.clone())
             .address();
-
-        EscrowContractClient::new(&env, &escrow).initialize(&admin);
 
         Self {
             env,

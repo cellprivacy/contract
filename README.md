@@ -33,7 +33,7 @@ The contract only verifies proofs. Generating them is the backend's job, which
 
 | | |
 |---|---|
-| `initialize` | Claim the instance, set the admin |
+| `__constructor` | Sets the admin at deploy time; called by the host, not an entrypoint |
 | `set_new_admin` | Hand over admin rights, signed by both parties |
 | `add_operator` / `remove_operator` | Manage who may settle withdrawals |
 | `allow_mint` / `block_mint` | Open or freeze an asset |

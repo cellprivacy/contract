@@ -93,12 +93,12 @@ Three roles, each enforced by `require_auth` on a specific address:
 
 | Role | Established by | May call |
 |------|----------------|----------|
-| **Admin** | `initialize`, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint`, `upgrade` |
+| **Admin** | the constructor, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint`, `upgrade` |
 | **Operator** | `add_operator` | `release_funds`, `reset_smt_root` |
 | **User** |, | `deposit` (authorizing the transfer of their own funds) |
 
 ```
-initialize(admin) ──> Admin
+deploy(admin) ──> Admin  (via __constructor)
      │
      ├─ allow_mint(mint) ─────────> deposits of `mint` accepted
      ├─ add_operator(op) ─────────> `op` may release
@@ -131,17 +131,16 @@ caller controls the key, and the `Operator(address)` lookup proves that key is
 still authorized. Removing an operator revokes it immediately, mid-flight
 signatures included (`release_is_rejected_after_the_operator_is_removed`).
 
-`initialize` requires the incoming admin's own authorization, so nobody can
-name a third party as admin. That is narrower than it sounds. Deploy and
-initialize are separate transactions in separate ledgers, and between them the
-contract sits on chain with no admin. Anyone watching closed ledgers can call
-`initialize` nominating themselves, satisfy the authorization check with their
-own key, and the `AlreadyInitialized` guard then makes it permanent.
+Initialization happens in `__constructor` (CAP-0058), which the host calls
+inside the deployment transaction with arguments supplied at deploy time. The
+instance is never on chain without an admin, so there is no window in which
+someone else can claim it. Reserved names cannot be invoked afterwards, so
+there is also no second-call path to guard.
 
-Soroban's answer to this is `__constructor` (CAP-0058), which runs inside the
-deployment transaction with arguments supplied at deploy time. Moving
-initialization there closes the window. This contract has not done so yet; see
-§8.
+The alternative, a plain `initialize` entrypoint called in a follow-up
+transaction, leaves the contract unclaimed for at least one ledger. Anyone
+watching closed ledgers can call it nominating themselves; the authorization
+check passes, because they are authorizing their own address.
 
 ## 4. Mint gating
 
@@ -306,32 +305,26 @@ same shape.
 
 ## 8. Open issues
 
-1. **`initialize` is front-runnable in the window before it lands.** Soroban has
-   `__constructor` (CAP-0058), which runs inside the deployment transaction with
-   arguments passed at deploy time and closes the window entirely. Moving to it
-   changes the deployment flow and the contract interface, so it is a decision
-   rather than a fix. The already-deployed testnet instances are unaffected,
-   having been initialized by their deployer.
-2. **Admin handover cannot be undone by the incoming admin alone.** Both parties
+1. **Admin handover cannot be undone by the incoming admin alone.** Both parties
    now sign, so a mistyped address is caught. Nothing recovers the instance if
    the new admin later loses their key; the escrow keeps working but can never
    be reconfigured or upgraded again.
-3. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
+2. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
    constant, so a proof does not bind the recipient or the amount; both rest
    entirely on the operator's signature. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
-4. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
+3. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
    behaviour and `empty_tree_root` matches the reference constant, so the
    algorithm is pinned. What does not exist anywhere is the component that
    *generates* proofs, so nothing can currently call `release_funds`.
-5. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
+4. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
    `Deposit(user, id)` entry and a returned deposit id; the contract emits an
    event and tracks only the aggregate. Fine if the indexer is the system of
    record, but the two specs should be reconciled.
-6. **The backend's event decoding does not match.** `cell-protocol`'s indexer
+5. **The backend's event decoding does not match.** `cell-protocol`'s indexer
    routes on `"Deposit"`/`"Settlement"` and reads `from`/`amount` from the data
    map; this contract emits `"deposit"`/`"release"` with `from` as a topic. The
    dispatch and handlers need updating against §6 above.
-7. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
+6. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
    encodes a provisional `settle(batch_id, total)` against the withdraw
    contract, which is not yet written.

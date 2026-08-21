@@ -11,7 +11,7 @@ use soroban_sdk::events::Event as _;
 use soroban_sdk::testutils::Events as _;
 
 #[test]
-fn initialize_sets_admin_and_an_empty_tree() {
+fn the_constructor_sets_admin_and_an_empty_tree() {
     let h = Harness::new();
     let client = h.client();
 
@@ -21,11 +21,20 @@ fn initialize_sets_admin_and_an_empty_tree() {
     assert_eq!(client.total_locked(&h.mint), 0);
 }
 
+/// The instance is fully configured the moment it exists. There is no window
+/// in which it sits on chain unclaimed, and no second-call path to guard: the
+/// host calls `__constructor` during deployment and reserved names cannot be
+/// invoked afterwards.
 #[test]
-#[should_panic(expected = "Error(Contract, #1)")]
-fn initialize_twice_is_rejected() {
+fn the_instance_is_usable_immediately_after_deployment() {
     let h = Harness::new();
-    h.client().initialize(&h.admin);
+    let client = h.client();
+    let operator = Address::generate(&h.env);
+
+    client.add_operator(&operator);
+
+    assert_eq!(client.admin(), h.admin);
+    assert!(client.is_operator(&operator));
 }
 
 #[test]
