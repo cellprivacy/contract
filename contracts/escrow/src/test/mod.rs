@@ -1,5 +1,3 @@
-#![cfg(test)]
-
 mod admin;
 mod deposit;
 mod release;

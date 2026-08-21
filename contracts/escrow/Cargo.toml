@@ -13,4 +13,6 @@ soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+# Installs .cargo-husky/hooks into .git/hooks on the next cargo test.
+cargo-husky = { workspace = true }
 serde_json = "1"
