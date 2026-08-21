@@ -166,6 +166,10 @@ snake case**, and the data body is a `Map<Symbol, Val>` keyed by field name.
 | `Deposit` | `("deposit", from, mint)` | `amount`, `total_locked`, `ledger` |
 | `Release` | `("release", to, mint)` | `amount`, `nonce`, `new_root`, `ledger` |
 | `Rotate` | `("rotate",)` | `tree_index`, `new_root` |
+| `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
+| `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
+| `MintSet` | `("mint_set", mint)` | `allowed`, `ledger` |
+| `Upgraded` | `("upgraded",)` | `new_wasm_hash` |
 
 Addresses are topics so the indexer can subscribe per user or per asset.
 
@@ -203,6 +207,7 @@ nothing. Treat a simulation error as final and do not retry the same proof.
 | 7 | `InsufficientLocked` | releasing more of an asset than is held |
 | 8 | `WrongTreeGeneration` | `nonce / 65536` ≠ installed `tree_index` |
 | 9 | `UnexpectedTreeIndex` | rotation submitted against a stale index |
+| 10 | `InvalidRecipient` | payout target is the escrow itself |
 
 `#6` is the ambiguous one. Before suspecting the contract, check the prover
 against `smt_vectors.json`, if those pass, the problem is tree state, not the

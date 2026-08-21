@@ -40,19 +40,52 @@ release of asset B be backed by deposits of asset A, which is a direct path to
 draining custody of an asset nobody deposited. Keying by mint makes the backing invariant
 hold per asset:
 
-> for every mint `m`: `TotalLocked(m)` == the contract's balance of `m`,
-> and no release of `m` may exceed it.
+> for every mint `m`, no release of `m` may exceed `TotalLocked(m)`.
+
+The contract enforces that bound. It does **not** reconcile `TotalLocked`
+against the token's real balance, and cannot: it never reads
+`token::Client::balance`. `TotalLocked(m)` is a record of what the escrow
+accepted through `deposit`, and the real balance can sit either side of it.
+
+Above, if someone transfers an allowed asset straight to the contract address
+without calling `deposit`. That surplus is unrecoverable, since no entrypoint
+can move an asset except `release_funds` and that is capped by `TotalLocked`.
+
+Below, if the asset is a Stellar Asset Contract whose issuer set
+`AUTH_CLAWBACK_ENABLED_FLAG` before the balance existed, or who revokes
+authorization. Releases then fail at the token rather than at the escrow's own
+check. Native XLM has no issuer and neither applies.
 
 Covered by `locked_totals_are_tracked_per_mint` and
 `release_cannot_be_backed_by_a_different_assets_deposits`.
 
 ### TTL policy
 
-Instance state is extended to 30 days whenever touched. Persistent entries are
-extended to 90 days on every read and write, so an operator or mint that is
-actively in use never expires. Both are refreshed through the single
-`get_persistent` / `set_persistent` pair in `storage.rs` rather than at call
-sites, so no entry can be written without its TTL being renewed.
+`extend_ttl` is a no-op while the remaining lifetime is still above its
+threshold, so both policies below are "top back up when it gets low", not
+"extend on every call".
+
+Persistent entries are topped back up to 90 days once fewer than 89 days
+remain. They go through the single `get_persistent` / `set_persistent` pair in
+`storage.rs` rather than through call sites, so no persistent entry can be read
+or written without its lifetime being considered.
+
+Instance state is topped back up to 30 days by every entrypoint that changes
+state, `deposit` included. That last one matters: `deposit` is the only
+user-facing entrypoint, and an escrow can take deposits for a long time without
+a release or a configuration change. Instance storage shares its lifetime with
+the contract code, so letting it lapse takes the contract offline until someone
+restores it. Covered by `deposit_keeps_the_instance_alive`.
+
+Nothing extends a lifetime automatically. The host never bumps on access, and
+`ExtendFootprintTTLOp` has no access control, so anyone may extend any entry.
+Expiry is an availability and rent concern, never a security boundary.
+
+One consequence worth knowing: because reads extend, the `total_locked`,
+`is_operator` and `is_allowed_mint` views can write a lifetime extension and
+charge rent. A monitoring loop polling them needs a read-write footprint.
+`root` and `tree_index` read instance storage without extending and are
+genuinely read-only.
 
 ## 3. Authorization flow
 
@@ -98,8 +131,17 @@ caller controls the key, and the `Operator(address)` lookup proves that key is
 still authorized. Removing an operator revokes it immediately, mid-flight
 signatures included (`release_is_rejected_after_the_operator_is_removed`).
 
-`initialize` requires the incoming admin's own authorization, so the contract
-cannot be initialized on someone's behalf.
+`initialize` requires the incoming admin's own authorization, so nobody can
+name a third party as admin. That is narrower than it sounds. Deploy and
+initialize are separate transactions in separate ledgers, and between them the
+contract sits on chain with no admin. Anyone watching closed ledgers can call
+`initialize` nominating themselves, satisfy the authorization check with their
+own key, and the `AlreadyInitialized` guard then makes it permanent.
+
+Soroban's answer to this is `__constructor` (CAP-0058), which runs inside the
+deployment transaction with arguments supplied at deploy time. Moving
+initialization there closes the window. This contract has not done so yet; see
+§8.
 
 ## 4. Mint gating
 
@@ -109,7 +151,14 @@ accepts nothing until the admin explicitly opens an asset, so the operator can
 finish wiring an instance before user funds can arrive.
 
 Blocking an asset stops new deposits *and* pauses releases of it, which is the
-intended lever for freezing an asset during an incident.
+intended lever for freezing an asset during an incident. `MintSet` is emitted so
+the freeze is visible off-chain.
+
+The gate does a second job. `deposit` and `release_funds` call into a token
+contract, which is the one address in those invocations this contract does not
+control, and a hostile token can insert authorization entries of its own into
+the tree. Because both paths refuse anything the admin has not explicitly
+opened, the contract never calls a token nobody vetted.
 
 ## 5. The withdrawal SMT
 
@@ -219,6 +268,18 @@ snake case and the data body is a `Map<Symbol, Val>` keyed by field name.
 | `Release` | `("release", to, mint)` | `amount`, `nonce`, `new_root`, `ledger` |
 | `Rotate` | `("rotate",)` | `tree_index`, `new_root` |
 | `Upgraded` | `("upgraded",)` | `new_wasm_hash` |
+| `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
+| `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
+| `MintSet` | `("mint_set", mint)` | `allowed`, `ledger` |
+
+The whole control surface emits, not only the money movements. Freezing an
+asset is an incident lever and has to be visible to whatever is watching.
+
+On upgrade the host also emits its own system event, topics
+`("executable_update", old_executable, new_executable)` with no data. The
+contract's `Upgraded` event is additive rather than necessary; an indexer
+already subscribed to this contract sees the latter without subscribing to
+system events.
 
 Addresses are topics so the indexer can subscribe per user or per asset; scalar
 payload is data. The exact XDR each event produces is asserted in
@@ -245,22 +306,32 @@ same shape.
 
 ## 8. Open issues
 
-1. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
+1. **`initialize` is front-runnable in the window before it lands.** Soroban has
+   `__constructor` (CAP-0058), which runs inside the deployment transaction with
+   arguments passed at deploy time and closes the window entirely. Moving to it
+   changes the deployment flow and the contract interface, so it is a decision
+   rather than a fix. The already-deployed testnet instances are unaffected,
+   having been initialized by their deployer.
+2. **Admin handover cannot be undone by the incoming admin alone.** Both parties
+   now sign, so a mistyped address is caught. Nothing recovers the instance if
+   the new admin later loses their key; the escrow keeps working but can never
+   be reconfigured or upgraded again.
+3. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
    constant, so a proof does not bind the recipient or the amount; both rest
    entirely on the operator's signature. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
-2. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
+4. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
    behaviour and `empty_tree_root` matches the reference constant, so the
    algorithm is pinned. What does not exist anywhere is the component that
    *generates* proofs, so nothing can currently call `release_funds`.
-3. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
+5. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
    `Deposit(user, id)` entry and a returned deposit id; the contract emits an
    event and tracks only the aggregate. Fine if the indexer is the system of
    record, but the two specs should be reconciled.
-4. **The backend's event decoding does not match.** `cell-protocol`'s indexer
+6. **The backend's event decoding does not match.** `cell-protocol`'s indexer
    routes on `"Deposit"`/`"Settlement"` and reads `from`/`amount` from the data
    map; this contract emits `"deposit"`/`"release"` with `from` as a topic. The
    dispatch and handlers need updating against §6 above.
-5. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
+7. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
    encodes a provisional `settle(batch_id, total)` against the withdraw
    contract, which is not yet written.

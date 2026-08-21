@@ -43,6 +43,8 @@ ADMIN=$(stellar keys address <identity>)
 NATIVE=$(stellar contract id asset --asset native --network testnet)
 
 # 1. Claim the instance. Requires the incoming admin's own signature.
+#    Do this immediately after deploying: until it lands, anyone can claim the
+#    instance as their own admin. See escrow-design.md §8.
 stellar contract invoke --id $C --source <identity> --network testnet -- \
   initialize --admin $ADMIN
 

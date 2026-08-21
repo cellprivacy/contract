@@ -34,7 +34,7 @@ The contract only verifies proofs. Generating them is the backend's job, which
 | | |
 |---|---|
 | `initialize` | Claim the instance, set the admin |
-| `set_new_admin` | Hand over admin rights |
+| `set_new_admin` | Hand over admin rights, signed by both parties |
 | `add_operator` / `remove_operator` | Manage who may settle withdrawals |
 | `allow_mint` / `block_mint` | Open or freeze an asset |
 | `deposit` | Lock an asset, called by the depositor |
@@ -49,7 +49,7 @@ Views: `admin`, `root`, `tree_index`, `total_locked`, `is_operator`,
 
 ```sh
 make check              # cargo fmt --check + clippy -D warnings
-cargo test              # 66 unit tests
+cargo test              # 74 unit tests
 stellar contract build  # compile to WASM
 ```
 
