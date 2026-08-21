@@ -15,4 +15,7 @@ pub enum EscrowError {
     WrongTreeGeneration = 8,
     /// The rotation was submitted against a stale tree index.
     UnexpectedTreeIndex = 9,
+    /// The payout target is the escrow itself, which would debit custody
+    /// without moving anything.
+    InvalidRecipient = 10,
 }

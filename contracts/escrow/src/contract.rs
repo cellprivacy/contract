@@ -21,30 +21,46 @@ impl EscrowContract {
     }
 
     // ---------- admin-gated config ----------
+    // Both parties sign: the outgoing admin to give the rights up, the
+    // incoming one to prove the address is controlled. A one-sided handover to
+    // a mistyped address would strand admin rights permanently, and with them
+    // the ability to upgrade.
     pub fn set_new_admin(e: Env, new_admin: Address) {
-        Self::require_admin(&e);
-        storage::set_admin(&e, new_admin);
+        let previous = storage::get_admin(&e);
+        previous.require_auth();
+        new_admin.require_auth();
+
+        storage::set_admin(&e, new_admin.clone());
         storage::extend_instance(&e);
+        event::admin_changed(&e, &previous, &new_admin);
     }
 
     pub fn add_operator(e: Env, operator: Address) {
         Self::require_admin(&e);
         storage::set_operator(&e, &operator, true);
+        storage::extend_instance(&e);
+        event::operator_set(&e, &operator, true);
     }
 
     pub fn remove_operator(e: Env, operator: Address) {
         Self::require_admin(&e);
         storage::set_operator(&e, &operator, false);
+        storage::extend_instance(&e);
+        event::operator_set(&e, &operator, false);
     }
 
     pub fn allow_mint(e: Env, mint: Address) {
         Self::require_admin(&e);
         storage::set_allowed_mint(&e, &mint, true);
+        storage::extend_instance(&e);
+        event::mint_set(&e, &mint, true);
     }
 
     pub fn block_mint(e: Env, mint: Address) {
         Self::require_admin(&e);
         storage::set_allowed_mint(&e, &mint, false);
+        storage::extend_instance(&e);
+        event::mint_set(&e, &mint, false);
     }
 
     // ---------- deposit ----------
@@ -63,6 +79,12 @@ impl EscrowContract {
         // token is the one address here we do not control.
         let total = storage::get_total_locked(&e, &mint) + amount;
         storage::set_total_locked(&e, &mint, total);
+
+        // Deposits are the only user-facing entrypoint. Without this an escrow
+        // that takes deposits but has not released or been reconfigured lets
+        // its instance, and with it the contract code, fall out of the live
+        // state.
+        storage::extend_instance(&e);
 
         let escrow = e.current_contract_address();
         token::Client::new(&e, &mint).transfer(&from, &escrow, &amount);
@@ -95,6 +117,10 @@ impl EscrowContract {
         }
         if !storage::is_allowed_mint(&e, &mint) {
             panic_with_error!(&e, EscrowError::MintNotAllowed);
+        }
+
+        if to == e.current_contract_address() {
+            panic_with_error!(&e, EscrowError::InvalidRecipient);
         }
 
         let total = storage::get_total_locked(&e, &mint);
