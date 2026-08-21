@@ -368,3 +368,23 @@ fn a_wrapped_nonce_cannot_reuse_a_leaf_in_the_same_tree() {
         &siblings,
     );
 }
+
+/// Paying the escrow itself would debit the recorded custody while the tokens
+/// never move, putting the books below the real balance.
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn release_rejects_the_escrow_as_its_own_recipient() {
+    let mut f = Funded::new(1_000);
+    let escrow = f.h.escrow.clone();
+    let (siblings, new_root) = f.tree.spend(7);
+
+    f.h.client().release_funds(
+        &f.operator,
+        &f.h.mint,
+        &escrow,
+        &300,
+        &7,
+        &new_root,
+        &siblings,
+    );
+}
