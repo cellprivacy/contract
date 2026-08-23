@@ -366,6 +366,25 @@ surplus. That is why the runbook says not to open such an asset, and the test
 exists so the incompatibility is a property of the code rather than a line in a
 document.
 
+### Property tests
+
+`src/test/props.rs` states the invariants the unit tests are examples of and
+lets proptest look for a counterexample. Custody conservation across generated
+sequences of deposits and releases, the record never exceeding what a release
+may move, the ceiling holding for any pair of cap and amount, only the installed
+generation accepting a nonce, and a sweep closing the gap without moving the
+record. Two more cover the tree over arbitrary nonces and spent sets.
+
+They run in `cargo test`, so a counterexample is a CI failure rather than
+something someone has to go looking for. Removing the ceiling check makes
+proptest fail and shrink to `cap = 1, amount = 2`, which is the behaviour worth
+having.
+
+`fuzz/` carries two libFuzzer targets for interactive campaigns. They do not
+link on macOS ARM: Soroban requires `crate-type = ["lib", "cdylib"]`, cargo-fuzz
+builds every crate type, and the instrumented dylib fails to link with or
+without a sanitizer. See `fuzz/README.md`. Treat them as unrun.
+
 ### Not covered
 
 Static analysis did not run. `cargo scout-audit` 0.3.16 pins
