@@ -44,6 +44,19 @@ pub fn set_admin(e: &Env, admin: Address) {
     e.storage().instance().set(&DataKey::Admin, &admin);
 }
 
+// ----- Version -----
+//
+// Storage-layout revision, written by the constructor. An upgrade that changes
+// the layout reads this to know what it is migrating from. Adding the marker
+// after the fact is far harder than carrying it from the start.
+pub fn get_version(e: &Env) -> u32 {
+    e.storage().instance().get(&DataKey::Version).unwrap_or(0)
+}
+
+pub fn set_version(e: &Env, v: u32) {
+    e.storage().instance().set(&DataKey::Version, &v);
+}
+
 // ----- Root -----
 pub fn get_root(e: &Env) -> BytesN<32> {
     e.storage().instance().get(&DataKey::Root).unwrap()
@@ -53,8 +66,11 @@ pub fn set_root(e: &Env, root: &BytesN<32>) {
 }
 
 // ----- TreeIndex -----
+// The constructor writes this alongside the root, so a missing entry means a
+// corrupt instance rather than generation zero. Inventing a zero here would
+// silently re-open every nonce of the first generation.
 pub fn get_tree_index(e: &Env) -> u64 {
-    e.storage().instance().get(&DataKey::TreeIndex).unwrap_or(0)
+    e.storage().instance().get(&DataKey::TreeIndex).unwrap()
 }
 pub fn set_tree_index(e: &Env, i: u64) {
     e.storage().instance().set(&DataKey::TreeIndex, &i);
@@ -78,7 +94,14 @@ pub fn is_operator(e: &Env, op: &Address) -> bool {
 }
 
 pub fn set_operator(e: &Env, op: &Address, enabled: bool) {
-    set_persistent(e, &DataKey::Operator(op.clone()), &enabled);
+    let key = DataKey::Operator(op.clone());
+    if enabled {
+        set_persistent(e, &key, &true);
+    } else {
+        // Readers fall back to false, so removing is the same answer and stops
+        // paying rent on a key that has been revoked.
+        e.storage().persistent().remove(&key);
+    }
 }
 
 // ----- Allowed mints (persistent) -----
@@ -87,5 +110,10 @@ pub fn is_allowed_mint(e: &Env, mint: &Address) -> bool {
 }
 
 pub fn set_allowed_mint(e: &Env, mint: &Address, allowed: bool) {
-    set_persistent(e, &DataKey::AllowedMint(mint.clone()), &allowed);
+    let key = DataKey::AllowedMint(mint.clone());
+    if allowed {
+        set_persistent(e, &key, &true);
+    } else {
+        e.storage().persistent().remove(&key);
+    }
 }

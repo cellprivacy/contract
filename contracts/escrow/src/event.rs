@@ -37,11 +37,16 @@ pub struct Release {
 
 /// Emitted when an operator rotates the withdrawal tree.
 ///
-/// Topics: `("rotate",)`. Data: a map of `tree_index`, `new_root`, `ledger`.
+/// Topics: `("rotate",)`. Data: a map of `tree_index`, `previous_root`,
+/// `new_root`, `ledger`.
+///
+/// The retired root is reported so an indexer can chain generations without
+/// having to have been watching when the previous one was installed.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rotate {
     pub tree_index: u64,
+    pub previous_root: BytesN<32>,
     pub new_root: BytesN<32>,
     pub ledger: u32,
 }
@@ -79,9 +84,10 @@ pub fn release(
     .publish(e);
 }
 
-pub fn rotate(e: &Env, tree_index: u64, new_root: BytesN<32>) {
+pub fn rotate(e: &Env, tree_index: u64, previous_root: BytesN<32>, new_root: BytesN<32>) {
     Rotate {
         tree_index,
+        previous_root,
         new_root,
         ledger: e.ledger().sequence(),
     }

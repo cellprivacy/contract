@@ -1,4 +1,12 @@
 #![no_std]
+use soroban_sdk::contractmeta;
+
+// Baked into the wasm, so the revision an instance is running can be read off
+// chain instead of trusted from a deployment table. With `upgrade` live that is
+// the only way to tell one instance from another.
+contractmeta!(key = "name", val = "cell-protocol-escrow");
+contractmeta!(key = "storage_version", val = "1");
+contractmeta!(key = "repo", val = "github.com/cellprivacy/contract");
 
 mod contract;
 mod error;

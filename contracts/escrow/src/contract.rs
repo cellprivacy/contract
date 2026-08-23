@@ -1,7 +1,7 @@
 use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, BytesN, Env, Vec};
 
 use crate::error::EscrowError;
-use crate::storage_types::MAX_TREE_LEAVES;
+use crate::storage_types::{MAX_TREE_LEAVES, STORAGE_VERSION};
 use crate::{event, smt, storage};
 
 #[contract]
@@ -15,6 +15,7 @@ impl EscrowContract {
     // anyone watching to claim it as their own.
     pub fn __constructor(e: Env, admin: Address) {
         admin.require_auth();
+        storage::set_version(&e, STORAGE_VERSION);
         storage::set_admin(&e, admin);
         storage::set_root(&e, &smt::empty_tree_root(&e));
         storage::set_tree_index(&e, 0);
@@ -180,11 +181,12 @@ impl EscrowContract {
         }
 
         let idx = expected_tree_index + 1;
+        let previous = storage::get_root(&e);
         let root = smt::empty_tree_root(&e);
         storage::set_tree_index(&e, idx);
         storage::set_root(&e, &root);
         storage::extend_instance(&e);
-        event::rotate(&e, idx, root);
+        event::rotate(&e, idx, previous, root);
     }
 
     // ---------- upgrade ----------
@@ -212,6 +214,10 @@ impl EscrowContract {
 
     pub fn root(e: Env) -> BytesN<32> {
         storage::get_root(&e)
+    }
+
+    pub fn version(e: Env) -> u32 {
+        storage::get_version(&e)
     }
 
     pub fn tree_index(e: Env) -> u64 {
