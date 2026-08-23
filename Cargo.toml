@@ -3,6 +3,10 @@ resolver = "2"
 members = [
   "contracts/*",
 ]
+exclude = [
+  # Built with cargo-fuzz on its own nightly toolchain.
+  "contracts/escrow/fuzz",
+]
 
 [workspace.dependencies]
 soroban-sdk = "27"
