@@ -256,6 +256,7 @@ fn release_publishes_the_settlement_event() {
         to: to.clone(),
         mint: f.h.mint.clone(),
         amount: 300,
+        total_locked: 700,
         nonce: 7,
         new_root: new_root.clone(),
         ledger: f.h.env.ledger().sequence(),
@@ -387,4 +388,17 @@ fn release_rejects_the_escrow_as_its_own_recipient() {
         &new_root,
         &siblings,
     );
+}
+
+/// Mirror of the recipient guard: depositing from the escrow to itself moves
+/// nothing but would still credit the recorded custody.
+#[test]
+#[should_panic(expected = "Error(Contract, #10)")]
+fn deposit_rejects_the_escrow_as_its_own_source() {
+    let h = Harness::new();
+    let client = h.client();
+    client.allow_mint(&h.mint);
+    let escrow = h.escrow.clone();
+
+    client.deposit(&escrow, &h.mint, &100);
 }

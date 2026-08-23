@@ -9,7 +9,7 @@ use soroban_sdk::testutils::storage::Instance as _;
 use soroban_sdk::testutils::{Address as _, Ledger as _};
 use soroban_sdk::Address;
 
-use super::Harness;
+use super::{Harness, RefTree};
 use crate::storage_types::{DAY_IN_LEDGERS, INSTANCE_BUMP_AMOUNT};
 
 fn instance_ttl(h: &Harness) -> u32 {
@@ -70,5 +70,68 @@ fn mint_changes_keep_the_instance_alive() {
     assert!(instance_ttl(&h) < INSTANCE_BUMP_AMOUNT);
 
     h.client().allow_mint(&h.mint);
+    assert_eq!(instance_ttl(&h), INSTANCE_BUMP_AMOUNT);
+}
+
+#[test]
+fn admin_handover_keeps_the_instance_alive() {
+    let h = Harness::new();
+    let next = Address::generate(&h.env);
+
+    age_past_threshold(&h);
+    assert!(instance_ttl(&h) < INSTANCE_BUMP_AMOUNT);
+
+    h.client().set_new_admin(&next);
+    assert_eq!(instance_ttl(&h), INSTANCE_BUMP_AMOUNT);
+}
+
+#[test]
+fn removing_an_operator_keeps_the_instance_alive() {
+    let h = Harness::new();
+    let operator = Address::generate(&h.env);
+    h.client().add_operator(&operator);
+
+    age_past_threshold(&h);
+    assert!(instance_ttl(&h) < INSTANCE_BUMP_AMOUNT);
+
+    h.client().remove_operator(&operator);
+    assert_eq!(instance_ttl(&h), INSTANCE_BUMP_AMOUNT);
+}
+
+#[test]
+fn blocking_a_mint_keeps_the_instance_alive() {
+    let h = Harness::new();
+    h.client().allow_mint(&h.mint);
+
+    age_past_threshold(&h);
+    assert!(instance_ttl(&h) < INSTANCE_BUMP_AMOUNT);
+
+    h.client().block_mint(&h.mint);
+    assert_eq!(instance_ttl(&h), INSTANCE_BUMP_AMOUNT);
+}
+
+#[test]
+fn release_and_rotation_keep_the_instance_alive() {
+    let h = Harness::new();
+    let client = h.client();
+    client.allow_mint(&h.mint);
+    let operator = Address::generate(&h.env);
+    client.add_operator(&operator);
+
+    let user = Address::generate(&h.env);
+    h.fund(&user, 10_000);
+    client.deposit(&user, &h.mint, &1_000);
+
+    let mut tree = RefTree::new(&h.env);
+    let (siblings, new_root) = tree.spend(7);
+
+    age_past_threshold(&h);
+    assert!(instance_ttl(&h) < INSTANCE_BUMP_AMOUNT);
+
+    client.release_funds(&operator, &h.mint, &user, &300, &7, &new_root, &siblings);
+    assert_eq!(instance_ttl(&h), INSTANCE_BUMP_AMOUNT);
+
+    age_past_threshold(&h);
+    client.reset_smt_root(&operator, &0);
     assert_eq!(instance_ttl(&h), INSTANCE_BUMP_AMOUNT);
 }

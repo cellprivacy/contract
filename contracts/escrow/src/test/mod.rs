@@ -6,6 +6,8 @@ mod smt_proofs;
 mod ttl;
 mod upgrade;
 mod vectors;
+#[cfg(feature = "wasm-tests")]
+mod wasm;
 
 use std::collections::BTreeSet;
 use std::vec::Vec as StdVec;

@@ -8,6 +8,11 @@ publish = false
 crate-type = ["lib", "cdylib"]
 doctest = false
 
+[features]
+# Tests that need the compiled wasm on disk. Kept behind a flag so `cargo test`
+# works on a clean checkout; `make test-wasm` builds the wasm and enables it.
+wasm-tests = []
+
 [dependencies]
 soroban-sdk = { workspace = true }
 
