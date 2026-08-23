@@ -165,7 +165,7 @@ snake case**, and the data body is a `Map<Symbol, Val>` keyed by field name.
 |---|---|---|
 | `Deposit` | `("deposit", from, mint)` | `amount`, `total_locked`, `ledger` |
 | `Release` | `("release", to, mint)` | `amount`, `total_locked`, `nonce`, `new_root`, `ledger` |
-| `Rotate` | `("rotate",)` | `tree_index`, `new_root`, `ledger` |
+| `Rotate` | `("rotate",)` | `tree_index`, `previous_root`, `new_root`, `ledger` |
 | `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
 | `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
 | `MintSet` | `("mint_set", mint)` | `allowed`, `ledger` |
@@ -218,8 +218,10 @@ The tree stops a withdrawal being settled twice. It does **not** authorize the
 withdrawal: the spent leaf is a constant, so a proof binds neither recipient nor
 amount. Both rest entirely on the operator's signature.
 
-An operator that signs a wrong payout is not caught by the contract, only the
-totals are, since a release can never exceed `TotalLocked` for that asset. That is
+An operator that signs a wrong payout is not caught by the contract. Only the
+totals are, and only in aggregate: there is no per-release cap, no rate limit
+and no delay, so a single transaction can move the entire `TotalLocked` of an
+asset. Read "bounded to be solvent" as exactly that and nothing more. That is
 the v1 model: the operator is trusted to be honest and bounded to be solvent. See
 `escrow-design.md` §8 for what changing this would take.
 

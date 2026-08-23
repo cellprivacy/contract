@@ -101,7 +101,7 @@ Three roles, each enforced by `require_auth` on a specific address:
 |------|----------------|----------|
 | **Admin** | the constructor, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint`, `upgrade` |
 | **Operator** | `add_operator` | `release_funds`, `reset_smt_root` |
-| **User** |, | `deposit` (authorizing the transfer of their own funds) |
+| **User** | — | `deposit`, authorizing the transfer of their own funds |
 
 ```
 deploy(admin) ──> Admin  (via __constructor)
@@ -254,6 +254,11 @@ operator set, the mint permissions, the locked totals and the tree. A release
 that changes the storage layout has to migrate it, in the same invocation or in
 a follow-up call.
 
+`Version` carries the layout revision so a migration can branch on what it is
+replacing, and `contractmeta!` bakes the same number into the wasm, so the
+revision an instance is running can be read off chain rather than trusted from
+the deployment table.
+
 Two consequences worth stating plainly:
 
 - The admin key is as powerful as the contract. Anyone holding it can install
@@ -271,7 +276,7 @@ snake case and the data body is a `Map<Symbol, Val>` keyed by field name.
 |-------|--------|------|
 | `Deposit` | `("deposit", from, mint)` | `amount`, `total_locked`, `ledger` |
 | `Release` | `("release", to, mint)` | `amount`, `total_locked`, `nonce`, `new_root`, `ledger` |
-| `Rotate` | `("rotate",)` | `tree_index`, `new_root`, `ledger` |
+| `Rotate` | `("rotate",)` | `tree_index`, `previous_root`, `new_root`, `ledger` |
 | `Upgraded` | `("upgraded",)` | `new_wasm_hash`, `ledger` |
 | `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
 | `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
@@ -323,9 +328,14 @@ same shape.
    admin can already `upgrade` to code that does anything, but it is a second
    way for custody to leave the contract and a second thing to get wrong. Out
    of scope for v1; revisit if a real deployment accumulates one.
-3. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
-   constant, so a proof does not bind the recipient or the amount; both rest
-   entirely on the operator's signature. If the tree is meant to carry
+3. **The leaf commits to nothing but "spent", and nothing bounds a release.**
+   `SHA256([0x01; 32])` is a constant, so a proof does not bind the recipient or
+   the amount; both rest entirely on the operator's signature. There is also no
+   per-release cap, no rate limit and no delay, so a compromised operator key
+   drains the whole `TotalLocked` of every allowed asset in one transaction.
+   Calling the operator "bounded to be solvent" is accurate but the only bound
+   is the total. A per-release or per-ledger cap in storage is cheap and does
+   not touch the tree or the off-chain prover, unlike changing the leaf format. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
 4. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
    behaviour and `empty_tree_root` matches the reference constant, so the
