@@ -71,8 +71,8 @@ impl Harness {
             .address()
     }
 
-    /// Allow `mint`, register `operator`, and fund + deposit `amount` from a
-    /// fresh depositor. Returns the depositor.
+    /// Fund a fresh depositor and deposit `amount` from them. The mint must
+    /// already be allowed. Returns the depositor.
     pub fn deposit_from_new_user(&self, amount: i128) -> Address {
         let user = Address::generate(&self.env);
         self.fund(&user, amount);
