@@ -188,8 +188,8 @@ separate initialization transaction.
 
 | | |
 |---|---|
-| Contract | `CA24BT7IVIXD3H4J3LNDLOL2ORETLSIQLNZO6PE4EBCNZC55MONZMB7K` |
-| Wasm hash | `0bcf7899211f3dcdd96f9332b64e0ea9d6c626f4181fef35692f8cd8c0e1a0d8` |
+| Contract | `CAEFRK572DSBML6RNXWLN5CAVLPLQWIQHX6HRJFEWP4OZRQWC3WNL6FT` |
+| Wasm hash | `762fd08133bd9f7fb2bb633f24cd1b5652f42b697744ba3d2c68a2e3e05554c8` |
 | Storage version | 1 |
 | Network | Test SDF Network ; September 2015 |
 | Admin | `GCGSY4IOU7PG2QN2Z744ZVWMSZD5MYINLPKB5XSGQQECEU7NJBWUWO4Q` |
@@ -199,21 +199,21 @@ separate initialization transaction.
 
 | Step | Hash |
 |---|---|
-| Upload wasm | `c6ea6bed41fccf192a44f05e0934f347be912de0ffd65dffc7016c0d6eb58e2b` |
-| Deploy, admin set by the constructor | `9d224791ca7f1dff341bb4ce169d4b1fd9a515f7f89badc338957e365c8c623a` |
-| `allow_mint`, ceiling 50 XLM | `79e6f5a002b654605af8049e99a050a57cd0677352ed5832a67e4a7c50b66e43` |
-| `add_operator` | `a399baee68f411360983dacfa7446af7b33224aad306bb9480ce80ea21fa2885` |
-| `deposit` 100 XLM | `ffa56ff1ed9784ddd9099aa723697c15a32710c4a4812a9ff7f20fb27afa7b6c` |
-| `release_funds` nonce 0, 30 XLM | `8346fb9eb2190c31311547495143a1bc9199683773739abf2c38d94f8b266638` |
-| `release_funds` nonce 1, 10 XLM | `c9ce8bcfcd09ed96b02d72f8bcd3bb855ae3da209acd903f08b933c07a86f0d5` |
-| `release_funds` nonce 2, 10 XLM | `27b9334582a7fece02ebfca3720f13f63d6b168cbe73cf7d1caac9a6cb4f4bec` |
-| Duplicate of nonce 2, **failed on chain** | `7ccc015e9a71424bc488a6a23415611925c35449e09979e7d524d6c5c3665a44` |
-| Transfer 7 XLM straight to the contract, bypassing `deposit` | `8140648354c531b104cd824ab42e9767265d73f0e7e4fdf6ab310ca9093eac8c` |
-| `sweep`, recovered 7 XLM | `72b73c05509de9aa1bd47628e6c7ac001600a47528893e957616a2662c4a8ae8` |
+| Upload wasm | `b528cb78838e9bd3bca8b83ddab4b0e8b530ed1cc4b18acb4a1f6c09485de14b` |
+| Deploy, admin set by the constructor | `634f6992936ce08de0d490d47acba446a915a21f37190a66482d5eecf363f78b` |
+| `allow_mint`, ceiling 50 XLM | `379b4a801fda4ffd70794944f6cc98410e96e64d643b924e626559dd704605f7` |
+| `add_operator` | `1ebf4f1986659cca9a9cc191534c204563df4d9da27451b5e6855658ecd3c2f0` |
+| `deposit` 100 XLM | `8eae10aaf85c806696b49a03affcb2e442c388e887b4987e2216bf8eb4766452` |
+| `release_funds` nonce 0, 30 XLM | `505c962f52f91864e547d679588a1f5f75ba18e2b739a86201bf8787eb3a3040` |
+| `release_funds` nonce 1, 10 XLM | `6949d1073458fbc65c6e775eb1a4207ce3003d71993dd1e8d6bd08b92f83d9af` |
+| `release_funds` nonce 2, 10 XLM | `fa8619db6e094968684c354a1bbcc4e1aea04cf2663ff29899194664f74f2c4b` |
+| Duplicate of nonce 2, **failed on chain** | `16765ff261831a1c44cd8b1b794e151afa2b7c6f475fbf7d64569ef38a6802b9` |
+| Transfer 7 XLM straight to the contract, bypassing `deposit` | `3f2c7bbf76ec4fd8bffc00ef1fa47c7c4730f377f374c248ec6ce4b70e9ce55b` |
+| `sweep`, recovered 7 XLM | `af84535d02965683c9b905976ab876ef6347af7b5c351a3e5f62846ee0eec427` |
 
-Read back after the run: `total_locked` 500000000 stroops and the contract's
-real XLM balance also 500000000. They agree exactly, which is what a sweep
-leaves behind.
+Read back after the run: `version` 1, `release_cap` 500000000, `total_locked`
+500000000, and the contract's real XLM balance also 500000000. The last two
+agree exactly, which is what a sweep leaves behind.
 
 The release proofs were taken verbatim from `smt_vectors.json`, so that file is
 confirmed usable by an off-chain prover against a live network.
@@ -221,7 +221,7 @@ confirmed usable by an off-chain prover against a live network.
 The duplicate withdrawal is a genuine on-chain failure, not a simulation error.
 It was built and simulated against the state before nonce 2 was spent, then
 submitted after the original landed, which is what happens when an operator's
-submission is beaten to the ledger. It reached ledger 4290042 and failed there
+submission is beaten to the ledger. It reached ledger 4290454 and failed there
 with contract error `#6`. No XLM moved.
 
 Refused at simulation on the same instance, so no ledger entry and no fee:
@@ -230,10 +230,6 @@ Refused at simulation on the same instance, so no ledger entry and no fee:
 |---|---|
 | `release_funds` of 60 XLM against a 50 XLM ceiling | `#12` `ReleaseCapExceeded` |
 | `sweep` with the balance equal to the record | `#11` `NoSurplus` |
-
-The sweep in the table above ran only after 7 XLM was transferred straight to
-the contract address. Before that, with nothing held beyond the record, the same
-call was refused.
 
 ### Upgrade verified
 
@@ -260,12 +256,14 @@ contract deployed without `upgrade` cannot be upgraded at all.
 
 ### Superseded
 
+`CA24BT7IVIXD3H4J3LNDLOL2ORETLSIQLNZO6PE4EBCNZC55MONZMB7K` carried the ceiling
+and sweep but predates the checked deposit credit.
 `CBH3J73JTD77DUQ6FAGVOPFTY3CDE6V6DEFW6CH4QQQGCINBB76KLKTY` was the first
-constructor deployment and predates the hardening pass: no release ceiling, no
-sweep, no storage version. `CAOWXO6MVNRP26XHPCK5KRQ44GUKCRYYCOLQ5PBHKACIAOIXKC6L7ZHR`
-and `CDORRV4DXCI73L23PG5IA7WAO4XH4WMGX3KOCCSOYAIMWW3A5C3DTJ36` are older still
-and were initialized in a follow-up transaction. All three are left in place as
-history; none matches the current wasm.
+constructor deployment, with neither.
+`CAOWXO6MVNRP26XHPCK5KRQ44GUKCRYYCOLQ5PBHKACIAOIXKC6L7ZHR` and
+`CDORRV4DXCI73L23PG5IA7WAO4XH4WMGX3KOCCSOYAIMWW3A5C3DTJ36` are older still and
+were initialized in a follow-up transaction. All are left in place as history;
+none matches the current wasm.
 
 ### Mainnet
 
