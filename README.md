@@ -50,7 +50,7 @@ Views: `admin`, `version`, `root`, `tree_index`, `total_locked`, `is_operator`,
 
 ```sh
 make check              # cargo fmt --check + clippy -D warnings
-cargo test              # 96 unit tests
+cargo test              # 103 unit tests
 stellar contract build  # compile to WASM
 make test-wasm          # 4 more tests that need the compiled wasm
 ```

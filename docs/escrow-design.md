@@ -329,6 +329,54 @@ contract uses Soroban's snake_case convention; the mapping is one-to-one:
 contract is one escrow. `cell-protocol-workflow/docs/contract.md` specifies the
 same shape.
 
+## 7b. Security review
+
+Walked against the Stellar smart-contract security guide, class by class. What
+follows is the outcome, including the parts that were checked and found to need
+nothing, because "not applicable" is only useful if it says why.
+
+| Class | Outcome |
+|---|---|
+| Missing authorization | Every privileged path authorizes an address loaded from storage. `require_admin` reads `Admin`; `release_funds` and `reset_smt_root` pair `operator.require_auth()` with a storage-backed membership check, so a valid signature from a non-operator proves nothing |
+| Auth replay through middleware | `deposit` authorizes `from` at the outer layer before the inner `token.transfer`, so a pre-signed auth tree cannot be consumed by a third party calling on the depositor's behalf |
+| Reinitialization | Not reachable: initialization is `__constructor`, which the host calls once and which cannot be invoked afterwards |
+| Arbitrary contract calls | `deposit` and `release_funds` refuse any asset the admin has not opened. `sweep` deliberately accepts any address, and what that buys an attacker is bounded by test, below |
+| Integer overflow | `overflow-checks = true` on the release profile, and the deposit credit is `checked_add` so a build under another profile still fails as a contract error rather than wrapping |
+| Storage key collisions | Single typed `DataKey` enum |
+| Check-then-act races | Every check and its state change happen in one invocation |
+| TTL and archival | §2. Nothing is gated on expiry, so the "anyone can extend any entry" property is not load-bearing |
+| Trusting cross-contract returns | `sweep` reads `balance` from the asset, and a lie there moves only that asset's own units; `TotalLocked` is never written from it |
+| Resource exhaustion | The only loop is the sixteen-level climb, and its length is rejected before it runs |
+| Custom accounts | No `__check_auth` |
+
+### What a hostile asset can reach
+
+`sweep` is the one place this contract calls an address it does not control.
+`src/test/hostile_token.rs` registers a token that lies about its balance and,
+when called, tries to spend the escrow's balance of a *different*, real asset.
+It fails: the escrow being on the call stack is not authority over the escrow,
+and the contract never authorizes on its own behalf. Real custody reads back
+untouched afterwards.
+
+The same file pins the fee-on-transfer incompatibility. The contract credits the
+amount it asked for rather than the amount that arrived, so an asset that
+deducts a fee leaves the record permanently above the balance and the gap grows
+with every deposit. `sweep` cannot repair it, because a shortfall is not a
+surplus. That is why the runbook says not to open such an asset, and the test
+exists so the incompatibility is a property of the code rather than a line in a
+document.
+
+### Not covered
+
+Static analysis did not run. `cargo scout-audit` 0.3.16 pins
+nightly-2025-08-07 and builds for `wasm32-unknown-unknown`, which soroban-sdk 27
+rejects outright; its summary table reports zero findings for a crate that never
+compiled, so it is a false negative rather than a clean result. Worth retrying
+when Scout supports the current SDK.
+
+No formal verification and no external audit. The Audit Bank subsidises audits
+for SCF-funded protocols and is the route to take before mainnet.
+
 ## 8. Open issues
 
 1. **Admin handover cannot be undone by the incoming admin alone.** Both parties
