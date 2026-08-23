@@ -130,6 +130,7 @@ idempotency part.
 ### Withdrawal
 
 ```
+0. amount must not exceed the asset's release_cap; read it with release_cap(mint)
 1. backend picks (to, amount) and allocates nonce = tree_index * 65536 + next
 2. siblings  = prover.exclusion_proof(nonce)          // before inserting
 3. new_root  = root after prover.insert(nonce)
@@ -168,7 +169,8 @@ snake case**, and the data body is a `Map<Symbol, Val>` keyed by field name.
 | `Rotate` | `("rotate",)` | `tree_index`, `previous_root`, `new_root`, `ledger` |
 | `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
 | `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
-| `MintSet` | `("mint_set", mint)` | `allowed`, `ledger` |
+| `MintSet` | `("mint_set", mint)` | `allowed`, `release_cap`, `ledger` |
+| `Swept` | `("swept", mint, to)` | `amount`, `total_locked`, `ledger` |
 | `Upgraded` | `("upgraded",)` | `new_wasm_hash`, `ledger` |
 
 Addresses are topics so the indexer can subscribe per user or per asset.
@@ -207,6 +209,8 @@ nothing. Treat a simulation error as final and do not retry the same proof.
 | 8 | `WrongTreeGeneration` | `nonce / 65536` ≠ installed `tree_index` |
 | 9 | `UnexpectedTreeIndex` | rotation submitted against a stale index |
 | 10 | `InvalidRecipient` | payout target, or deposit source, is the escrow itself |
+| 11 | `NoSurplus` | nothing held beyond recorded custody to sweep |
+| 12 | `ReleaseCapExceeded` | release above the asset's per-release ceiling |
 
 `#6` is the ambiguous one. Before suspecting the contract, check the prover
 against `smt_vectors.json`, if those pass, the problem is tree state, not the

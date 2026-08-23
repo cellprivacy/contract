@@ -31,7 +31,7 @@ must not bloat the instance footprint.
 | `TreeIndex` | instance | `u64` | Generation counter, bumped on rotation |
 | `TotalLocked(mint)` | persistent | `i128` | Assets under custody, **per asset** |
 | `Operator(address)` | persistent | `bool` | Membership in the operator set |
-| `AllowedMint(mint)` | persistent | `bool` | Whether the asset may be deposited |
+| `AllowedMint(mint)` | persistent | `i128` | Per-release ceiling; the entry's presence is what allows the asset |
 
 ### Why `TotalLocked` is keyed by mint
 
@@ -42,19 +42,20 @@ hold per asset:
 
 > for every mint `m`, no release of `m` may exceed `TotalLocked(m)`.
 
-The contract enforces that bound. It does **not** reconcile `TotalLocked`
-against the token's real balance, and cannot: it never reads
-`token::Client::balance`. `TotalLocked(m)` is a record of what the escrow
-accepted through `deposit`, and the real balance can sit either side of it.
+The contract enforces that bound. What it does not do is assume
+`TotalLocked(m)` equals the real balance, because it cannot: the balance moves
+for reasons the contract never sees.
 
-Above, if someone transfers an allowed asset straight to the contract address
-without calling `deposit`. That surplus is unrecoverable, since no entrypoint
-can move an asset except `release_funds` and that is capped by `TotalLocked`.
+Above the record, if someone transfers an allowed asset straight to the contract
+address without calling `deposit`. `sweep` recovers exactly that difference and
+leaves `TotalLocked` untouched, so it cannot reach backed custody however it is
+called. After a sweep the two agree exactly.
 
-Below, if the asset is a Stellar Asset Contract whose issuer set
+Below the record, if the asset is a Stellar Asset Contract whose issuer set
 `AUTH_CLAWBACK_ENABLED_FLAG` before the balance existed, or who revokes
-authorization. Releases then fail at the token rather than at the escrow's own
-check. Native XLM has no issuer and neither applies.
+authorization, or if the asset deducts a fee on transfer. Releases then fail at
+the token rather than at the escrow's own check, and `sweep` refuses because
+there is no surplus. Native XLM has no issuer and none of these apply.
 
 Covered by `locked_totals_are_tracked_per_mint` and
 `release_cannot_be_backed_by_a_different_assets_deposits`.
@@ -99,7 +100,7 @@ Three roles, each enforced by `require_auth` on a specific address:
 
 | Role | Established by | May call |
 |------|----------------|----------|
-| **Admin** | the constructor, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint`, `upgrade` |
+| **Admin** | the constructor, then `set_new_admin` | `set_new_admin`, `add_operator`, `remove_operator`, `allow_mint`, `block_mint`, `sweep`, `upgrade` |
 | **Operator** | `add_operator` | `release_funds`, `reset_smt_root` |
 | **User** | — | `deposit`, authorizing the transfer of their own funds |
 
@@ -150,10 +151,23 @@ check passes, because they are authorizing their own address.
 
 ## 4. Mint gating
 
-`AllowedMint` is a per-asset switch, checked on both `deposit` and
-`release_funds`. Assets default to **blocked**: a freshly initialized escrow
-accepts nothing until the admin explicitly opens an asset, so the operator can
-finish wiring an instance before user funds can arrive.
+`AllowedMint` is a per-asset entry, checked on both `deposit` and
+`release_funds`. Assets default to **blocked**: a freshly deployed escrow
+accepts nothing until the admin explicitly opens one, so an instance can be
+wired up before user funds can arrive.
+
+The entry holds the asset's **per-release ceiling**, because opening an asset
+and deciding how much may leave in a single release are the same decision.
+`allow_mint(mint, release_cap)` takes both; a ceiling of zero means uncapped and
+has to be typed rather than fallen into. Call it again to change the ceiling on
+an asset that is already open.
+
+Be clear about what the ceiling buys. It does not stop a compromised operator
+key, which can simply release repeatedly against fresh nonces. It converts a
+one-transaction drain into a sequence of them, each with its own event, which is
+the only thing available on chain that buys anyone time to notice and block the
+asset. `the_ceiling_bounds_a_release_not_a_sequence` says so in a test so nobody
+reads more into it later.
 
 Blocking an asset stops new deposits *and* pauses releases of it, which is the
 intended lever for freezing an asset during an incident. `MintSet` is emitted so
@@ -280,7 +294,8 @@ snake case and the data body is a `Map<Symbol, Val>` keyed by field name.
 | `Upgraded` | `("upgraded",)` | `new_wasm_hash`, `ledger` |
 | `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
 | `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
-| `MintSet` | `("mint_set", mint)` | `allowed`, `ledger` |
+| `MintSet` | `("mint_set", mint)` | `allowed`, `release_cap`, `ledger` |
+| `Swept` | `("swept", mint, to)` | `amount`, `total_locked`, `ledger` |
 
 The whole control surface emits, not only the money movements. Freezing an
 asset is an incident lever and has to be visible to whatever is watching.
@@ -320,35 +335,25 @@ same shape.
    now sign, so a mistyped address is caught. Nothing recovers the instance if
    the new admin later loses their key; the escrow keeps working but can never
    be reconfigured or upgraded again.
-2. **Surplus balance has no exit, deliberately.** A token transferred straight
-   to the contract address, bypassing `deposit`, is not counted in
-   `TotalLocked` and no entrypoint can move it: `release_funds` is capped by
-   `TotalLocked` and there is no sweep. The surplus is stranded rather than at
-   risk. A `sweep(mint, to)` would recover it and adds no new trust, since the
-   admin can already `upgrade` to code that does anything, but it is a second
-   way for custody to leave the contract and a second thing to get wrong. Out
-   of scope for v1; revisit if a real deployment accumulates one.
-3. **The leaf commits to nothing but "spent", and nothing bounds a release.**
-   `SHA256([0x01; 32])` is a constant, so a proof does not bind the recipient or
-   the amount; both rest entirely on the operator's signature. There is also no
-   per-release cap, no rate limit and no delay, so a compromised operator key
-   drains the whole `TotalLocked` of every allowed asset in one transaction.
-   Calling the operator "bounded to be solvent" is accurate but the only bound
-   is the total. A per-release or per-ledger cap in storage is cheap and does
-   not touch the tree or the off-chain prover, unlike changing the leaf format. If the tree is meant to carry
+2. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
+   constant, so a proof binds neither the recipient nor the amount; both rest
+   entirely on the operator's signature. The per-release ceiling bounds a single
+   release but not a sequence of them, and there is still no rate limit and no
+   delay. Making the leaf `H(nonce ‖ to ‖ amount ‖ mint)` would bind them, at
+   the cost of changing the tree and every off-chain prover with it. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
-4. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
+3. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
    behaviour and `empty_tree_root` matches the reference constant, so the
    algorithm is pinned. What does not exist anywhere is the component that
    *generates* proofs, so nothing can currently call `release_funds`.
-5. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
+4. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
    `Deposit(user, id)` entry and a returned deposit id; the contract emits an
    event and tracks only the aggregate. Fine if the indexer is the system of
    record, but the two specs should be reconciled.
-6. **The backend's event decoding does not match.** `cell-protocol`'s indexer
+5. **The backend's event decoding does not match.** `cell-protocol`'s indexer
    routes on `"Deposit"`/`"Settlement"` and reads `from`/`amount` from the data
    map; this contract emits `"deposit"`/`"release"` with `from` as a topic. The
    dispatch and handlers need updating against §6 above.
-7. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
+6. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
    encodes a provisional `settle(batch_id, total)` against the withdraw
    contract, which is not yet written.

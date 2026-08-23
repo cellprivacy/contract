@@ -65,9 +65,10 @@ can be released until an operator is registered.
 C=<contract id>
 NATIVE=$(stellar contract id asset --asset native --network testnet)
 
-# Open an asset for deposits. Assets are blocked by default.
+# Open an asset for deposits, with the ceiling on a single release.
+# 0 means uncapped, and has to be typed rather than fallen into.
 stellar contract invoke --id $C --source <identity> --network testnet -- \
-  allow_mint --mint $NATIVE
+  allow_mint --mint $NATIVE --release_cap <stroops or 0>
 
 # Register the operator that will settle withdrawals.
 stellar contract invoke --id $C --source <identity> --network testnet -- \
@@ -111,6 +112,20 @@ stellar contract invoke --id $C --source <operator> --network testnet -- \
 The nonce must satisfy `nonce / 65536 == tree_index`, so nonces are allocated in
 blocks of 65 536 per generation and never reused.
 
+**Sweep** recovers balance the contract holds beyond what it recorded as
+custody, which is what a transfer straight to the contract address leaves
+behind. It moves that difference and nothing else, so backed custody is out of
+reach whatever arguments it is given. It works for assets that were never
+opened, which is the usual case for strays.
+
+```sh
+stellar contract invoke --id $C --source <identity> --network testnet -- \
+  sweep --mint <asset C...> --to <recipient G...>
+```
+
+Fails with `#11` when there is no surplus, including when the real balance has
+fallen *below* the record, which a clawback or a fee-on-transfer asset can do.
+
 **Rotate** once a generation's nonces are used up. `expected_tree_index` guards
 against a replay landing twice and stranding a generation:
 
@@ -131,8 +146,13 @@ about that token is assumed, so look at it first.
   the escrow's balance, with the same effect.
 - **Fee on transfer.** The contract credits `TotalLocked` with the amount it was
   asked for, not the amount that arrived. A token that deducts a fee on transfer
-  leaves the recorded custody permanently above the real balance, and the
-  shortfall grows with every deposit. Do not allow such a token.
+  leaves the recorded custody permanently above the real balance, the shortfall
+  grows with every deposit, and `sweep` cannot fix it because there is no
+  surplus to move. Do not allow such a token.
+- **Release ceiling.** `allow_mint` takes one. Pick a figure that a settlement
+  batch will not normally exceed, so a compromised operator key has to make
+  several visible transactions rather than one. It does not stop a drain; it
+  slows one down enough to notice.
 - **Non-standard decimals or supply hooks.** Anything that makes `transfer` do
   something other than move exactly `amount` breaks the same assumption.
 
