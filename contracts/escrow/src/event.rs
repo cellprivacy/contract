@@ -143,7 +143,8 @@ pub struct OperatorSet {
 
 /// Emitted when an asset is opened for deposits or frozen.
 ///
-/// Topics: `("mint_set", mint)`. Data: a map of `allowed`, `ledger`.
+/// Topics: `("mint_set", mint)`. Data: a map of `allowed`, `release_cap`,
+/// `ledger`.
 ///
 /// Freezing an asset is an incident lever, so it has to be visible to
 /// whatever is watching this contract.
@@ -153,6 +154,24 @@ pub struct MintSet {
     #[topic]
     pub mint: Address,
     pub allowed: bool,
+    pub release_cap: i128,
+    pub ledger: u32,
+}
+
+/// Emitted when the admin recovers balance held beyond recorded custody.
+///
+/// Topics: `("swept", mint, to)`. Data: a map of `amount`, `total_locked`,
+/// `ledger`. `total_locked` is reported unchanged, since a sweep never moves
+/// backed custody.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Swept {
+    #[topic]
+    pub mint: Address,
+    #[topic]
+    pub to: Address,
+    pub amount: i128,
+    pub total_locked: i128,
     pub ledger: u32,
 }
 
@@ -174,10 +193,22 @@ pub fn operator_set(e: &Env, operator: &Address, enabled: bool) {
     .publish(e);
 }
 
-pub fn mint_set(e: &Env, mint: &Address, allowed: bool) {
+pub fn mint_set(e: &Env, mint: &Address, allowed: bool, release_cap: i128) {
     MintSet {
         mint: mint.clone(),
         allowed,
+        release_cap,
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
+}
+
+pub fn swept(e: &Env, mint: &Address, to: &Address, amount: i128, total_locked: i128) {
+    Swept {
+        mint: mint.clone(),
+        to: to.clone(),
+        amount,
+        total_locked,
         ledger: e.ledger().sequence(),
     }
     .publish(e);

@@ -19,4 +19,10 @@ pub enum EscrowError {
     /// The payout target is the escrow itself, which would debit custody
     /// without moving anything.
     InvalidRecipient = 10,
+    /// The contract holds no balance of this asset beyond what is recorded as
+    /// custody, so there is nothing to sweep.
+    NoSurplus = 11,
+    /// The release exceeds the per-asset ceiling the admin set when the asset
+    /// was opened.
+    ReleaseCapExceeded = 12,
 }

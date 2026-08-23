@@ -105,15 +105,26 @@ pub fn set_operator(e: &Env, op: &Address, enabled: bool) {
 }
 
 // ----- Allowed mints (persistent) -----
+//
+// The entry holds the per-release ceiling for the asset, and its presence is
+// what makes the asset depositable. A ceiling of zero means uncapped, which the
+// admin has to type rather than fall into.
 pub fn is_allowed_mint(e: &Env, mint: &Address) -> bool {
-    get_persistent(e, &DataKey::AllowedMint(mint.clone())).unwrap_or(false)
+    e.storage()
+        .persistent()
+        .has(&DataKey::AllowedMint(mint.clone()))
 }
 
-pub fn set_allowed_mint(e: &Env, mint: &Address, allowed: bool) {
-    let key = DataKey::AllowedMint(mint.clone());
-    if allowed {
-        set_persistent(e, &key, &true);
-    } else {
-        e.storage().persistent().remove(&key);
-    }
+pub fn get_release_cap(e: &Env, mint: &Address) -> i128 {
+    get_persistent(e, &DataKey::AllowedMint(mint.clone())).unwrap_or(0)
+}
+
+pub fn allow_mint(e: &Env, mint: &Address, release_cap: i128) {
+    set_persistent(e, &DataKey::AllowedMint(mint.clone()), &release_cap);
+}
+
+pub fn block_mint(e: &Env, mint: &Address) {
+    e.storage()
+        .persistent()
+        .remove(&DataKey::AllowedMint(mint.clone()));
 }

@@ -51,18 +51,62 @@ impl EscrowContract {
         event::operator_set(&e, &operator, false);
     }
 
-    pub fn allow_mint(e: Env, mint: Address) {
+    // Opening an asset and deciding how much may leave in one release are the
+    // same decision, so they are the same call. A ceiling of zero means
+    // uncapped; the admin has to type it rather than fall into it.
+    //
+    // Call again to change the ceiling on an asset that is already open.
+    pub fn allow_mint(e: Env, mint: Address, release_cap: i128) {
         Self::require_admin(&e);
-        storage::set_allowed_mint(&e, &mint, true);
+        if release_cap < 0 {
+            panic_with_error!(&e, EscrowError::InvalidAmount);
+        }
+        storage::allow_mint(&e, &mint, release_cap);
         storage::extend_instance(&e);
-        event::mint_set(&e, &mint, true);
+        event::mint_set(&e, &mint, true, release_cap);
     }
 
     pub fn block_mint(e: Env, mint: Address) {
         Self::require_admin(&e);
-        storage::set_allowed_mint(&e, &mint, false);
+        storage::block_mint(&e, &mint);
         storage::extend_instance(&e);
-        event::mint_set(&e, &mint, false);
+        event::mint_set(&e, &mint, false, 0);
+    }
+
+    // ---------- sweep ----------
+    //
+    // Moves the balance this contract holds beyond what it recorded as custody,
+    // and nothing else. `TotalLocked` is not touched, so the ceiling on every
+    // release is unchanged and backed custody is out of reach by construction.
+    //
+    // Surplus arrives from transfers straight to the contract address, which
+    // bypass `deposit` entirely. Assets that were never opened are the common
+    // case, so this deliberately does not require the asset to be allowed.
+    pub fn sweep(e: Env, mint: Address, to: Address) -> i128 {
+        Self::require_admin(&e);
+
+        let escrow = e.current_contract_address();
+        if to == escrow {
+            panic_with_error!(&e, EscrowError::InvalidRecipient);
+        }
+
+        let token = token::Client::new(&e, &mint);
+        let balance = token.balance(&escrow);
+        let locked = storage::get_total_locked(&e, &mint);
+
+        // Below zero means the real balance has fallen under the record, which
+        // a clawback or a fee-on-transfer asset can do. Nothing to recover, and
+        // the shortfall is not this function's problem to paper over.
+        let surplus = balance - locked;
+        if surplus <= 0 {
+            panic_with_error!(&e, EscrowError::NoSurplus);
+        }
+
+        storage::extend_instance(&e);
+        event::swept(&e, &mint, &to, surplus, locked);
+        token.transfer(&escrow, &to, &surplus);
+
+        surplus
     }
 
     // ---------- deposit ----------
@@ -128,6 +172,14 @@ impl EscrowContract {
 
         if to == e.current_contract_address() {
             panic_with_error!(&e, EscrowError::InvalidRecipient);
+        }
+
+        // The ceiling does not stop a compromised operator, who can release
+        // repeatedly. It turns one transaction into a visible sequence of them,
+        // which is the only thing on chain that buys anyone reaction time.
+        let cap = storage::get_release_cap(&e, &mint);
+        if cap > 0 && amount > cap {
+            panic_with_error!(&e, EscrowError::ReleaseCapExceeded);
         }
 
         let total = storage::get_total_locked(&e, &mint);
@@ -234,6 +286,10 @@ impl EscrowContract {
 
     pub fn is_allowed_mint(e: Env, mint: Address) -> bool {
         storage::is_allowed_mint(&e, &mint)
+    }
+
+    pub fn release_cap(e: Env, mint: Address) -> i128 {
+        storage::get_release_cap(&e, &mint)
     }
 
     // ---------- internal ----------

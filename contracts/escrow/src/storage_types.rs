@@ -24,5 +24,5 @@ pub enum DataKey {
     TreeIndex,            // instance: u64
     TotalLocked(Address), // persistent: i128, held per mint
     Operator(Address),    // persistent: bool
-    AllowedMint(Address), // persistent: bool
+    AllowedMint(Address), // persistent: i128 release cap; presence = allowed
 }
