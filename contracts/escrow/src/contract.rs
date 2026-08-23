@@ -1,7 +1,7 @@
 use soroban_sdk::{contract, contractimpl, panic_with_error, token, Address, BytesN, Env, Vec};
 
 use crate::error::EscrowError;
-use crate::storage_types::MAX_TREE_LEAVES;
+use crate::storage_types::{MAX_TREE_LEAVES, STORAGE_VERSION};
 use crate::{event, smt, storage};
 
 #[contract]
@@ -9,11 +9,13 @@ pub struct EscrowContract;
 
 #[contractimpl]
 impl EscrowContract {
-    pub fn initialize(e: Env, admin: Address) {
-        if storage::has_admin(&e) {
-            panic_with_error!(&e, EscrowError::AlreadyInitialized);
-        }
+    // Runs inside the deployment transaction, called by the host and never
+    // reachable afterwards. Initializing in a follow-up call would leave the
+    // contract on chain with no admin for at least one ledger, long enough for
+    // anyone watching to claim it as their own.
+    pub fn __constructor(e: Env, admin: Address) {
         admin.require_auth();
+        storage::set_version(&e, STORAGE_VERSION);
         storage::set_admin(&e, admin);
         storage::set_root(&e, &smt::empty_tree_root(&e));
         storage::set_tree_index(&e, 0);
@@ -21,30 +23,90 @@ impl EscrowContract {
     }
 
     // ---------- admin-gated config ----------
+    // Both parties sign: the outgoing admin to give the rights up, the
+    // incoming one to prove the address is controlled. A one-sided handover to
+    // a mistyped address would strand admin rights permanently, and with them
+    // the ability to upgrade.
     pub fn set_new_admin(e: Env, new_admin: Address) {
-        Self::require_admin(&e);
-        storage::set_admin(&e, new_admin);
+        let previous = storage::get_admin(&e);
+        previous.require_auth();
+        new_admin.require_auth();
+
+        storage::set_admin(&e, new_admin.clone());
         storage::extend_instance(&e);
+        event::admin_changed(&e, &previous, &new_admin);
     }
 
     pub fn add_operator(e: Env, operator: Address) {
         Self::require_admin(&e);
         storage::set_operator(&e, &operator, true);
+        storage::extend_instance(&e);
+        event::operator_set(&e, &operator, true);
     }
 
     pub fn remove_operator(e: Env, operator: Address) {
         Self::require_admin(&e);
         storage::set_operator(&e, &operator, false);
+        storage::extend_instance(&e);
+        event::operator_set(&e, &operator, false);
     }
 
-    pub fn allow_mint(e: Env, mint: Address) {
+    // Opening an asset and deciding how much may leave in one release are the
+    // same decision, so they are the same call. A ceiling of zero means
+    // uncapped; the admin has to type it rather than fall into it.
+    //
+    // Call again to change the ceiling on an asset that is already open.
+    pub fn allow_mint(e: Env, mint: Address, release_cap: i128) {
         Self::require_admin(&e);
-        storage::set_allowed_mint(&e, &mint, true);
+        if release_cap < 0 {
+            panic_with_error!(&e, EscrowError::InvalidAmount);
+        }
+        storage::allow_mint(&e, &mint, release_cap);
+        storage::extend_instance(&e);
+        event::mint_set(&e, &mint, true, release_cap);
     }
 
     pub fn block_mint(e: Env, mint: Address) {
         Self::require_admin(&e);
-        storage::set_allowed_mint(&e, &mint, false);
+        storage::block_mint(&e, &mint);
+        storage::extend_instance(&e);
+        event::mint_set(&e, &mint, false, 0);
+    }
+
+    // ---------- sweep ----------
+    //
+    // Moves the balance this contract holds beyond what it recorded as custody,
+    // and nothing else. `TotalLocked` is not touched, so the ceiling on every
+    // release is unchanged and backed custody is out of reach by construction.
+    //
+    // Surplus arrives from transfers straight to the contract address, which
+    // bypass `deposit` entirely. Assets that were never opened are the common
+    // case, so this deliberately does not require the asset to be allowed.
+    pub fn sweep(e: Env, mint: Address, to: Address) -> i128 {
+        Self::require_admin(&e);
+
+        let escrow = e.current_contract_address();
+        if to == escrow {
+            panic_with_error!(&e, EscrowError::InvalidRecipient);
+        }
+
+        let token = token::Client::new(&e, &mint);
+        let balance = token.balance(&escrow);
+        let locked = storage::get_total_locked(&e, &mint);
+
+        // Below zero means the real balance has fallen under the record, which
+        // a clawback or a fee-on-transfer asset can do. Nothing to recover, and
+        // the shortfall is not this function's problem to paper over.
+        let surplus = balance - locked;
+        if surplus <= 0 {
+            panic_with_error!(&e, EscrowError::NoSurplus);
+        }
+
+        storage::extend_instance(&e);
+        event::swept(&e, &mint, &to, surplus, locked);
+        token.transfer(&escrow, &to, &surplus);
+
+        surplus
     }
 
     // ---------- deposit ----------
@@ -52,6 +114,11 @@ impl EscrowContract {
         from.require_auth();
         if amount <= 0 {
             panic_with_error!(&e, EscrowError::InvalidAmount);
+        }
+        // Mirror of the guard in release_funds. Depositing from the escrow to
+        // itself moves nothing but would still credit the recorded custody.
+        if from == e.current_contract_address() {
+            panic_with_error!(&e, EscrowError::InvalidRecipient);
         }
         if !storage::is_allowed_mint(&e, &mint) {
             panic_with_error!(&e, EscrowError::MintNotAllowed);
@@ -61,8 +128,21 @@ impl EscrowContract {
         // contract already on the call stack, so this is defence in depth
         // against a custom token contract rather than a live hole, but the
         // token is the one address here we do not control.
-        let total = storage::get_total_locked(&e, &mint) + amount;
+        // `overflow-checks = true` on the release profile would catch this as a
+        // panic, but a build under any other profile wraps silently, and a
+        // wrapped total under-reports custody. Checked here so the failure is a
+        // contract error either way.
+        let total = match storage::get_total_locked(&e, &mint).checked_add(amount) {
+            Some(t) => t,
+            None => panic_with_error!(&e, EscrowError::TotalLockedOverflow),
+        };
         storage::set_total_locked(&e, &mint, total);
+
+        // Deposits are the only user-facing entrypoint. Without this an escrow
+        // that takes deposits but has not released or been reconfigured lets
+        // its instance, and with it the contract code, fall out of the live
+        // state.
+        storage::extend_instance(&e);
 
         let escrow = e.current_contract_address();
         token::Client::new(&e, &mint).transfer(&from, &escrow, &amount);
@@ -97,6 +177,18 @@ impl EscrowContract {
             panic_with_error!(&e, EscrowError::MintNotAllowed);
         }
 
+        if to == e.current_contract_address() {
+            panic_with_error!(&e, EscrowError::InvalidRecipient);
+        }
+
+        // The ceiling does not stop a compromised operator, who can release
+        // repeatedly. It turns one transaction into a visible sequence of them,
+        // which is the only thing on chain that buys anyone reaction time.
+        let cap = storage::get_release_cap(&e, &mint);
+        if cap > 0 && amount > cap {
+            panic_with_error!(&e, EscrowError::ReleaseCapExceeded);
+        }
+
         let total = storage::get_total_locked(&e, &mint);
         if amount > total {
             panic_with_error!(&e, EscrowError::InsufficientLocked);
@@ -129,7 +221,7 @@ impl EscrowContract {
         let escrow = e.current_contract_address();
         token::Client::new(&e, &mint).transfer(&escrow, &to, &amount);
 
-        event::release(&e, &to, &mint, amount, nonce, new_root);
+        event::release(&e, &to, &mint, amount, total - amount, nonce, new_root);
     }
 
     // ---------- tree rotation ----------
@@ -148,11 +240,12 @@ impl EscrowContract {
         }
 
         let idx = expected_tree_index + 1;
+        let previous = storage::get_root(&e);
         let root = smt::empty_tree_root(&e);
         storage::set_tree_index(&e, idx);
         storage::set_root(&e, &root);
         storage::extend_instance(&e);
-        event::rotate(&e, idx, root);
+        event::rotate(&e, idx, previous, root);
     }
 
     // ---------- upgrade ----------
@@ -182,6 +275,10 @@ impl EscrowContract {
         storage::get_root(&e)
     }
 
+    pub fn version(e: Env) -> u32 {
+        storage::get_version(&e)
+    }
+
     pub fn tree_index(e: Env) -> u64 {
         storage::get_tree_index(&e)
     }
@@ -196,6 +293,10 @@ impl EscrowContract {
 
     pub fn is_allowed_mint(e: Env, mint: Address) -> bool {
         storage::is_allowed_mint(&e, &mint)
+    }
+
+    pub fn release_cap(e: Env, mint: Address) -> i128 {
+        storage::get_release_cap(&e, &mint)
     }
 
     // ---------- internal ----------

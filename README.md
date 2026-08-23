@@ -33,24 +33,26 @@ The contract only verifies proofs. Generating them is the backend's job, which
 
 | | |
 |---|---|
-| `initialize` | Claim the instance, set the admin |
-| `set_new_admin` | Hand over admin rights |
+| `__constructor` | Sets the admin at deploy time; called by the host, not an entrypoint |
+| `set_new_admin` | Hand over admin rights, signed by both parties |
 | `add_operator` / `remove_operator` | Manage who may settle withdrawals |
-| `allow_mint` / `block_mint` | Open or freeze an asset |
+| `allow_mint` / `block_mint` | Open an asset with a per-release ceiling, or freeze it |
 | `deposit` | Lock an asset, called by the depositor |
 | `release_funds` | Pay out against a proof, operator only |
 | `reset_smt_root` | Start a new tree generation, operator only |
+| `sweep` | Recover balance held beyond recorded custody, admin only |
 | `upgrade` | Replace the contract executable, admin only |
 
-Views: `admin`, `root`, `tree_index`, `total_locked`, `is_operator`,
-`is_allowed_mint`.
+Views: `admin`, `version`, `root`, `tree_index`, `total_locked`, `is_operator`,
+`is_allowed_mint`, `release_cap`.
 
 ## Build and test
 
 ```sh
 make check              # cargo fmt --check + clippy -D warnings
-cargo test              # 66 unit tests
+cargo test              # 110 tests, including property tests
 stellar contract build  # compile to WASM
+make test-wasm          # 4 more tests that need the compiled wasm
 ```
 
 The WASM build needs `rustup target add wasm32v1-none`. A pre-commit hook runs

@@ -4,7 +4,8 @@ use soroban_sdk::contracterror;
 #[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
 #[repr(u32)]
 pub enum EscrowError {
-    AlreadyInitialized = 1,
+    // 1 was AlreadyInitialized, retired when initialization moved into the
+    // constructor. Codes are not reused.
     NotAuthorized = 2,
     MintNotAllowed = 3,
     InvalidAmount = 4,
@@ -15,4 +16,15 @@ pub enum EscrowError {
     WrongTreeGeneration = 8,
     /// The rotation was submitted against a stale tree index.
     UnexpectedTreeIndex = 9,
+    /// The payout target is the escrow itself, which would debit custody
+    /// without moving anything.
+    InvalidRecipient = 10,
+    /// The contract holds no balance of this asset beyond what is recorded as
+    /// custody, so there is nothing to sweep.
+    NoSurplus = 11,
+    /// The release exceeds the per-asset ceiling the admin set when the asset
+    /// was opened.
+    ReleaseCapExceeded = 12,
+    /// Crediting this deposit would overflow the recorded custody.
+    TotalLockedOverflow = 13,
 }

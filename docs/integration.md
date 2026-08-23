@@ -130,6 +130,7 @@ idempotency part.
 ### Withdrawal
 
 ```
+0. amount must not exceed the asset's release_cap; read it with release_cap(mint)
 1. backend picks (to, amount) and allocates nonce = tree_index * 65536 + next
 2. siblings  = prover.exclusion_proof(nonce)          // before inserting
 3. new_root  = root after prover.insert(nonce)
@@ -164,8 +165,13 @@ snake case**, and the data body is a `Map<Symbol, Val>` keyed by field name.
 | Event | Topics | Data |
 |---|---|---|
 | `Deposit` | `("deposit", from, mint)` | `amount`, `total_locked`, `ledger` |
-| `Release` | `("release", to, mint)` | `amount`, `nonce`, `new_root`, `ledger` |
-| `Rotate` | `("rotate",)` | `tree_index`, `new_root` |
+| `Release` | `("release", to, mint)` | `amount`, `total_locked`, `nonce`, `new_root`, `ledger` |
+| `Rotate` | `("rotate",)` | `tree_index`, `previous_root`, `new_root`, `ledger` |
+| `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
+| `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
+| `MintSet` | `("mint_set", mint)` | `allowed`, `release_cap`, `ledger` |
+| `Swept` | `("swept", mint, to)` | `amount`, `total_locked`, `ledger` |
+| `Upgraded` | `("upgraded",)` | `new_wasm_hash`, `ledger` |
 
 Addresses are topics so the indexer can subscribe per user or per asset.
 
@@ -194,7 +200,6 @@ nothing. Treat a simulation error as final and do not retry the same proof.
 
 | Code | Meaning | Usual cause |
 |---|---|---|
-| 1 | `AlreadyInitialized` | double `initialize` |
 | 2 | `NotAuthorized` | caller is not a registered operator |
 | 3 | `MintNotAllowed` | asset never allowed, or blocked mid-flight |
 | 4 | `InvalidAmount` | amount ≤ 0 |
@@ -203,6 +208,9 @@ nothing. Treat a simulation error as final and do not retry the same proof.
 | 7 | `InsufficientLocked` | releasing more of an asset than is held |
 | 8 | `WrongTreeGeneration` | `nonce / 65536` ≠ installed `tree_index` |
 | 9 | `UnexpectedTreeIndex` | rotation submitted against a stale index |
+| 10 | `InvalidRecipient` | payout target, or deposit source, is the escrow itself |
+| 11 | `NoSurplus` | nothing held beyond recorded custody to sweep |
+| 12 | `ReleaseCapExceeded` | release above the asset's per-release ceiling |
 
 `#6` is the ambiguous one. Before suspecting the contract, check the prover
 against `smt_vectors.json`, if those pass, the problem is tree state, not the
@@ -214,8 +222,10 @@ The tree stops a withdrawal being settled twice. It does **not** authorize the
 withdrawal: the spent leaf is a constant, so a proof binds neither recipient nor
 amount. Both rest entirely on the operator's signature.
 
-An operator that signs a wrong payout is not caught by the contract, only the
-totals are, since a release can never exceed `TotalLocked` for that asset. That is
+An operator that signs a wrong payout is not caught by the contract. Only the
+totals are, and only in aggregate: there is no per-release cap, no rate limit
+and no delay, so a single transaction can move the entire `TotalLocked` of an
+asset. Read "bounded to be solvent" as exactly that and nothing more. That is
 the v1 model: the operator is trusted to be honest and bounded to be solvent. See
 `escrow-design.md` §8 for what changing this would take.
 

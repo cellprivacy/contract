@@ -20,7 +20,7 @@ pub struct Deposit {
 /// Emitted when an operator releases custody back to a user.
 ///
 /// Topics: `("release", to, mint)`.
-/// Data: a map of `amount`, `nonce`, `new_root`, `ledger`.
+/// Data: a map of `amount`, `total_locked`, `nonce`, `new_root`, `ledger`.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Release {
@@ -29,19 +29,26 @@ pub struct Release {
     #[topic]
     pub mint: Address,
     pub amount: i128,
+    pub total_locked: i128,
     pub nonce: u64,
     pub new_root: BytesN<32>,
     pub ledger: u32,
 }
 
-/// Emitted when the admin rotates the withdrawal tree.
+/// Emitted when an operator rotates the withdrawal tree.
 ///
-/// Topics: `("rotate",)`. Data: a map of `tree_index`, `new_root`.
+/// Topics: `("rotate",)`. Data: a map of `tree_index`, `previous_root`,
+/// `new_root`, `ledger`.
+///
+/// The retired root is reported so an indexer can chain generations without
+/// having to have been watching when the previous one was installed.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rotate {
     pub tree_index: u64,
+    pub previous_root: BytesN<32>,
     pub new_root: BytesN<32>,
+    pub ledger: u32,
 }
 
 pub fn deposit(e: &Env, from: &Address, mint: &Address, amount: i128, total_locked: i128) {
@@ -55,11 +62,13 @@ pub fn deposit(e: &Env, from: &Address, mint: &Address, amount: i128, total_lock
     .publish(e);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn release(
     e: &Env,
     to: &Address,
     mint: &Address,
     amount: i128,
+    total_locked: i128,
     nonce: u64,
     new_root: BytesN<32>,
 ) {
@@ -67,6 +76,7 @@ pub fn release(
         to: to.clone(),
         mint: mint.clone(),
         amount,
+        total_locked,
         nonce,
         new_root,
         ledger: e.ledger().sequence(),
@@ -74,23 +84,132 @@ pub fn release(
     .publish(e);
 }
 
-pub fn rotate(e: &Env, tree_index: u64, new_root: BytesN<32>) {
+pub fn rotate(e: &Env, tree_index: u64, previous_root: BytesN<32>, new_root: BytesN<32>) {
     Rotate {
         tree_index,
+        previous_root,
         new_root,
+        ledger: e.ledger().sequence(),
     }
     .publish(e);
 }
 
 /// Emitted when the admin replaces the contract executable.
 ///
-/// Topics: `("upgraded",)`. Data: a map of `new_wasm_hash`.
+/// Topics: `("upgraded",)`. Data: a map of `new_wasm_hash`, `ledger`.
+///
+/// The host publishes its own `executable_update` system event for the same
+/// swap; this one exists so an indexer already following this contract sees it
+/// without subscribing to system events.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Upgraded {
     pub new_wasm_hash: BytesN<32>,
+    pub ledger: u32,
 }
 
 pub fn upgraded(e: &Env, new_wasm_hash: BytesN<32>) {
-    Upgraded { new_wasm_hash }.publish(e);
+    Upgraded {
+        new_wasm_hash,
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
+}
+
+/// Emitted when admin rights move to another address.
+///
+/// Topics: `("admin_changed", previous, next)`. Data: a map of `ledger`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct AdminChanged {
+    #[topic]
+    pub previous: Address,
+    #[topic]
+    pub next: Address,
+    pub ledger: u32,
+}
+
+/// Emitted when an address joins or leaves the operator set.
+///
+/// Topics: `("operator_set", operator)`. Data: a map of `enabled`, `ledger`.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OperatorSet {
+    #[topic]
+    pub operator: Address,
+    pub enabled: bool,
+    pub ledger: u32,
+}
+
+/// Emitted when an asset is opened for deposits or frozen.
+///
+/// Topics: `("mint_set", mint)`. Data: a map of `allowed`, `release_cap`,
+/// `ledger`.
+///
+/// Freezing an asset is an incident lever, so it has to be visible to
+/// whatever is watching this contract.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct MintSet {
+    #[topic]
+    pub mint: Address,
+    pub allowed: bool,
+    pub release_cap: i128,
+    pub ledger: u32,
+}
+
+/// Emitted when the admin recovers balance held beyond recorded custody.
+///
+/// Topics: `("swept", mint, to)`. Data: a map of `amount`, `total_locked`,
+/// `ledger`. `total_locked` is reported unchanged, since a sweep never moves
+/// backed custody.
+#[contractevent]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Swept {
+    #[topic]
+    pub mint: Address,
+    #[topic]
+    pub to: Address,
+    pub amount: i128,
+    pub total_locked: i128,
+    pub ledger: u32,
+}
+
+pub fn admin_changed(e: &Env, previous: &Address, next: &Address) {
+    AdminChanged {
+        previous: previous.clone(),
+        next: next.clone(),
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
+}
+
+pub fn operator_set(e: &Env, operator: &Address, enabled: bool) {
+    OperatorSet {
+        operator: operator.clone(),
+        enabled,
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
+}
+
+pub fn mint_set(e: &Env, mint: &Address, allowed: bool, release_cap: i128) {
+    MintSet {
+        mint: mint.clone(),
+        allowed,
+        release_cap,
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
+}
+
+pub fn swept(e: &Env, mint: &Address, to: &Address, amount: i128, total_locked: i128) {
+    Swept {
+        mint: mint.clone(),
+        to: to.clone(),
+        amount,
+        total_locked,
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
 }
