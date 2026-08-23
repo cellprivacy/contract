@@ -77,6 +77,12 @@ a release or a configuration change. Instance storage shares its lifetime with
 the contract code, so letting it lapse takes the contract offline until someone
 restores it. Covered by `deposit_keeps_the_instance_alive`.
 
+On mainnet a newly created persistent entry starts at the network's
+`minPersistentTTL`, currently 2,073,600 ledgers or about 120 days, which is
+already above this contract's own 90-day target. The first bump therefore does
+nothing for roughly a month. Testnet's minimum is about 7 days, so entries there
+reach the bump threshold far sooner.
+
 Nothing extends a lifetime automatically. The host never bumps on access, and
 `ExtendFootprintTTLOp` has no access control, so anyone may extend any entry.
 Expiry is an availability and rent concern, never a security boundary.
@@ -264,9 +270,9 @@ snake case and the data body is a `Map<Symbol, Val>` keyed by field name.
 | Event | Topics | Data |
 |-------|--------|------|
 | `Deposit` | `("deposit", from, mint)` | `amount`, `total_locked`, `ledger` |
-| `Release` | `("release", to, mint)` | `amount`, `nonce`, `new_root`, `ledger` |
-| `Rotate` | `("rotate",)` | `tree_index`, `new_root` |
-| `Upgraded` | `("upgraded",)` | `new_wasm_hash` |
+| `Release` | `("release", to, mint)` | `amount`, `total_locked`, `nonce`, `new_root`, `ledger` |
+| `Rotate` | `("rotate",)` | `tree_index`, `new_root`, `ledger` |
+| `Upgraded` | `("upgraded",)` | `new_wasm_hash`, `ledger` |
 | `AdminChanged` | `("admin_changed", previous, next)` | `ledger` |
 | `OperatorSet` | `("operator_set", operator)` | `enabled`, `ledger` |
 | `MintSet` | `("mint_set", mint)` | `allowed`, `ledger` |
@@ -309,22 +315,30 @@ same shape.
    now sign, so a mistyped address is caught. Nothing recovers the instance if
    the new admin later loses their key; the escrow keeps working but can never
    be reconfigured or upgraded again.
-2. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
+2. **Surplus balance has no exit, deliberately.** A token transferred straight
+   to the contract address, bypassing `deposit`, is not counted in
+   `TotalLocked` and no entrypoint can move it: `release_funds` is capped by
+   `TotalLocked` and there is no sweep. The surplus is stranded rather than at
+   risk. A `sweep(mint, to)` would recover it and adds no new trust, since the
+   admin can already `upgrade` to code that does anything, but it is a second
+   way for custody to leave the contract and a second thing to get wrong. Out
+   of scope for v1; revisit if a real deployment accumulates one.
+3. **The leaf commits to nothing but "spent".** `SHA256([0x01; 32])` is a
    constant, so a proof does not bind the recipient or the amount; both rest
    entirely on the operator's signature. If the tree is meant to carry
    cryptographic weight, the leaf should be `H(nonce ‖ to ‖ amount ‖ mint)`.
-3. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
+4. **No off-chain prover yet.** `vectors/smt_vectors.json` fixes the tree's
    behaviour and `empty_tree_root` matches the reference constant, so the
    algorithm is pinned. What does not exist anywhere is the component that
    *generates* proofs, so nothing can currently call `release_funds`.
-4. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
+5. **`deposit` keeps no per-deposit record.** `contract.md` specifies a
    `Deposit(user, id)` entry and a returned deposit id; the contract emits an
    event and tracks only the aggregate. Fine if the indexer is the system of
    record, but the two specs should be reconciled.
-5. **The backend's event decoding does not match.** `cell-protocol`'s indexer
+6. **The backend's event decoding does not match.** `cell-protocol`'s indexer
    routes on `"Deposit"`/`"Settlement"` and reads `from`/`amount` from the data
    map; this contract emits `"deposit"`/`"release"` with `from` as a topic. The
    dispatch and handlers need updating against §6 above.
-6. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
+7. **`settle()` does not exist here.** `cell_core::stellar::soroban::settle_args`
    encodes a provisional `settle(batch_id, total)` against the withdraw
    contract, which is not yet written.

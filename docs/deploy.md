@@ -24,13 +24,30 @@ a release build.
 The admin is set by the constructor, inside the deployment transaction. Pass it
 after the `--` separator.
 
+**The admin must be the deploying identity.** The constructor calls
+`admin.require_auth()`, and `stellar contract deploy` signs only with
+`--source`. Naming a different address traps inside the constructor and rolls
+the whole deployment back:
+
+```
+[log] VM call trapped with HostError, __constructor, Error(Auth, InvalidAction)
+```
+
+Deploying on behalf of a separate admin means building the transaction, adding
+that address's authorization entry, collecting its signature and submitting by
+hand. If that is what you need, deploy with the operator identity as admin and
+hand over afterwards with `set_new_admin`, which is designed for it and takes
+both signatures.
+
 ```sh
 stellar keys generate <identity> --network testnet --fund
+ADMIN=$(stellar keys address <identity>)
+
 stellar contract deploy \
   --wasm target/wasm32v1-none/release/escrow.wasm \
   --source <identity> \
   --network testnet \
-  -- --admin <admin G...>
+  -- --admin $ADMIN
 ```
 
 Prints the contract id (`C...`). Record it, the wasm hash and both transaction
@@ -70,6 +87,56 @@ stellar contract invoke --id $C --source <identity> --network testnet -- tree_in
 A freshly deployed instance reports tree index `0` and root
 `8fe6b1689256c0d385f42f5bbe2027a22c1996e110ba97c171d3e5948de92beb`, the empty
 tree root. If `root` differs, something has already been settled against it.
+
+## Operating
+
+**Deposit** is called by the user, authorized by their own signature:
+
+```sh
+stellar contract invoke --id $C --source <user> --network testnet -- \
+  deposit --from <user G...> --mint $NATIVE --amount <stroops>
+```
+
+**Release** is called by a registered operator and needs a proof. `siblings` is
+a JSON array of 16 hex-encoded 32-byte hashes, least-significant-bit first; see
+`escrow-design.md` §5 and the worked cases in
+`../contracts/escrow/vectors/smt_vectors.json`.
+
+```sh
+stellar contract invoke --id $C --source <operator> --network testnet -- \
+  release_funds --operator <operator G...> --mint $NATIVE --to <recipient G...> \
+  --amount <stroops> --nonce <n> --new_root <hex32> --siblings '["<hex32>", ...]'
+```
+
+The nonce must satisfy `nonce / 65536 == tree_index`, so nonces are allocated in
+blocks of 65 536 per generation and never reused.
+
+**Rotate** once a generation's nonces are used up. `expected_tree_index` guards
+against a replay landing twice and stranding a generation:
+
+```sh
+stellar contract invoke --id $C --source <operator> --network testnet -- \
+  reset_smt_root --operator <operator G...> --expected_tree_index <current>
+```
+
+## Before allowing an asset
+
+`allow_mint` is the only check the contract makes on a token. Everything else
+about that token is assumed, so look at it first.
+
+- **Clawback.** If the issuer set `AUTH_CLAWBACK_ENABLED_FLAG` before the
+  escrow's balance existed, the issuer can take it back. `TotalLocked` would
+  then sit above the real balance and releases fail at the token.
+- **Revocable authorization.** `AUTH_REVOCABLE_FLAG` lets the issuer deauthorize
+  the escrow's balance, with the same effect.
+- **Fee on transfer.** The contract credits `TotalLocked` with the amount it was
+  asked for, not the amount that arrived. A token that deducts a fee on transfer
+  leaves the recorded custody permanently above the real balance, and the
+  shortfall grows with every deposit. Do not allow such a token.
+- **Non-standard decimals or supply hooks.** Anything that makes `transfer` do
+  something other than move exactly `amount` breaks the same assumption.
+
+Native XLM has no issuer and none of these apply.
 
 ## Upgrading
 
@@ -130,6 +197,29 @@ It was built and simulated against the state before nonce 3 was spent, then
 submitted after the original landed, which is exactly what happens when an
 operator's submission is beaten to the ledger. It reached ledger 4253601 and
 failed there with contract error `#6`. No XLM moved.
+
+### Upgrade verified
+
+Verified twice, in-crate and on the network.
+
+`state_survives_an_upgrade` in `src/test/wasm.rs` uploads the compiled wasm,
+deploys through a factory so the constructor runs under real authorization,
+loads the instance with a deposit, an operator, a mint permission and a
+rotation, then upgrades and reads every piece of state back. Run it with
+`make test-wasm`.
+
+On testnet, instance `CA3ZXQF2BKFH2KNNGQAYJAOJZ7N5XPUTQU5BS2PL5TCJT6XKKFPHI75E`
+was upgraded in transaction
+`69f6f7f1686c4242ca861d0476d0b68b75909e77a895f12b1b0ce0cbb7580594`, and a
+second instance was upgraded mid-run with fifteen nonces already spent, in
+`9e578fb38e0367a2ecb2894957e507b78dccfb0325a4d0fa96f910fc47aa74e3`. In both
+cases admin, operator set, mint permission, locked total and tree index read
+back unchanged, and further calls settled normally on the new executable. An
+`upgrade` submitted by the operator was refused: simulation demanded the admin
+key.
+
+Both instances predate the constructor, so they are also the evidence that a
+contract deployed without `upgrade` cannot be upgraded at all.
 
 ### Superseded
 

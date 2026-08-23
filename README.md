@@ -49,8 +49,9 @@ Views: `admin`, `root`, `tree_index`, `total_locked`, `is_operator`,
 
 ```sh
 make check              # cargo fmt --check + clippy -D warnings
-cargo test              # 74 unit tests
+cargo test              # 79 unit tests
 stellar contract build  # compile to WASM
+make test-wasm          # 4 more tests that need the compiled wasm
 ```
 
 The WASM build needs `rustup target add wasm32v1-none`. A pre-commit hook runs
