@@ -25,4 +25,6 @@ pub enum EscrowError {
     /// The release exceeds the per-asset ceiling the admin set when the asset
     /// was opened.
     ReleaseCapExceeded = 12,
+    /// Crediting this deposit would overflow the recorded custody.
+    TotalLockedOverflow = 13,
 }

@@ -128,7 +128,14 @@ impl EscrowContract {
         // contract already on the call stack, so this is defence in depth
         // against a custom token contract rather than a live hole, but the
         // token is the one address here we do not control.
-        let total = storage::get_total_locked(&e, &mint) + amount;
+        // `overflow-checks = true` on the release profile would catch this as a
+        // panic, but a build under any other profile wraps silently, and a
+        // wrapped total under-reports custody. Checked here so the failure is a
+        // contract error either way.
+        let total = match storage::get_total_locked(&e, &mint).checked_add(amount) {
+            Some(t) => t,
+            None => panic_with_error!(&e, EscrowError::TotalLockedOverflow),
+        };
         storage::set_total_locked(&e, &mint, total);
 
         // Deposits are the only user-facing entrypoint. Without this an escrow
