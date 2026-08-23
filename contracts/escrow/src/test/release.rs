@@ -21,7 +21,7 @@ impl Funded {
     fn new(locked: i128) -> Self {
         let h = Harness::new();
         let client = h.client();
-        client.allow_mint(&h.mint);
+        client.allow_mint(&h.mint, &0);
 
         let operator = Address::generate(&h.env);
         client.add_operator(&operator);
@@ -164,7 +164,7 @@ fn release_cannot_be_backed_by_a_different_assets_deposits() {
     let mut f = Funded::new(1_000);
     let client = f.h.client();
     let other = f.h.other_mint();
-    client.allow_mint(&other);
+    client.allow_mint(&other, &0);
 
     let to = Address::generate(&f.h.env);
     let (siblings, new_root) = f.tree.spend(7);
@@ -397,8 +397,106 @@ fn release_rejects_the_escrow_as_its_own_recipient() {
 fn deposit_rejects_the_escrow_as_its_own_source() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
     let escrow = h.escrow.clone();
 
     client.deposit(&escrow, &h.mint, &100);
+}
+
+/// The ceiling is per asset and set when the asset is opened.
+#[test]
+#[should_panic(expected = "Error(Contract, #12)")]
+fn release_above_the_ceiling_is_rejected() {
+    let h = Harness::new();
+    let client = h.client();
+    client.allow_mint(&h.mint, &200);
+    let operator = Address::generate(&h.env);
+    client.add_operator(&operator);
+    h.deposit_from_new_user(1_000);
+
+    let mut tree = RefTree::new(&h.env);
+    let (siblings, new_root) = tree.spend(7);
+    let to = Address::generate(&h.env);
+
+    client.release_funds(&operator, &h.mint, &to, &201, &7, &new_root, &siblings);
+}
+
+#[test]
+fn a_release_at_the_ceiling_is_allowed() {
+    let h = Harness::new();
+    let client = h.client();
+    client.allow_mint(&h.mint, &200);
+    let operator = Address::generate(&h.env);
+    client.add_operator(&operator);
+    h.deposit_from_new_user(1_000);
+
+    let mut tree = RefTree::new(&h.env);
+    let (siblings, new_root) = tree.spend(7);
+    let to = Address::generate(&h.env);
+
+    client.release_funds(&operator, &h.mint, &to, &200, &7, &new_root, &siblings);
+    assert_eq!(h.balance_of(&to), 200);
+}
+
+/// The ceiling slows a compromised operator, it does not stop one. Two
+/// releases move twice the ceiling; the brake is that they are two visible
+/// transactions instead of one.
+#[test]
+fn the_ceiling_bounds_a_release_not_a_sequence() {
+    let h = Harness::new();
+    let client = h.client();
+    client.allow_mint(&h.mint, &200);
+    let operator = Address::generate(&h.env);
+    client.add_operator(&operator);
+    h.deposit_from_new_user(1_000);
+
+    let mut tree = RefTree::new(&h.env);
+    let to = Address::generate(&h.env);
+
+    let (siblings, new_root) = tree.spend(1);
+    client.release_funds(&operator, &h.mint, &to, &200, &1, &new_root, &siblings);
+    let (siblings, new_root) = tree.spend(2);
+    client.release_funds(&operator, &h.mint, &to, &200, &2, &new_root, &siblings);
+
+    assert_eq!(h.balance_of(&to), 400);
+}
+
+/// Zero means uncapped, and the admin has to type it.
+#[test]
+fn a_ceiling_of_zero_means_uncapped() {
+    let h = Harness::new();
+    let client = h.client();
+    client.allow_mint(&h.mint, &0);
+    let operator = Address::generate(&h.env);
+    client.add_operator(&operator);
+    h.deposit_from_new_user(1_000);
+
+    let mut tree = RefTree::new(&h.env);
+    let (siblings, new_root) = tree.spend(7);
+    let to = Address::generate(&h.env);
+
+    assert_eq!(client.release_cap(&h.mint), 0);
+    client.release_funds(&operator, &h.mint, &to, &1_000, &7, &new_root, &siblings);
+    assert_eq!(h.balance_of(&to), 1_000);
+}
+
+/// Re-opening an asset is how the ceiling is changed.
+#[test]
+fn the_ceiling_can_be_lowered_on_an_open_asset() {
+    let h = Harness::new();
+    let client = h.client();
+
+    client.allow_mint(&h.mint, &0);
+    assert_eq!(client.release_cap(&h.mint), 0);
+
+    client.allow_mint(&h.mint, &50);
+    assert_eq!(client.release_cap(&h.mint), 50);
+    assert!(client.is_allowed_mint(&h.mint));
+}
+
+#[test]
+#[should_panic(expected = "Error(Contract, #4)")]
+fn a_negative_ceiling_is_rejected() {
+    let h = Harness::new();
+    h.client().allow_mint(&h.mint, &-1);
 }

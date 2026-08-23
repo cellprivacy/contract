@@ -3,6 +3,7 @@ mod deposit;
 mod release;
 mod rotation;
 mod smt_proofs;
+mod sweep;
 mod ttl;
 mod upgrade;
 mod vectors;

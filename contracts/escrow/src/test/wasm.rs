@@ -88,7 +88,7 @@ fn state_survives_an_upgrade() {
         .register_stellar_asset_contract_v2(admin.clone())
         .address();
     let operator = Address::generate(&env);
-    client.allow_mint(&mint);
+    client.allow_mint(&mint, &0);
     client.add_operator(&operator);
 
     let user = Address::generate(&env);

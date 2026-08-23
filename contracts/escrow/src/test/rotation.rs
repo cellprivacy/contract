@@ -106,7 +106,7 @@ fn revoking_an_operator_removes_the_storage_entry() {
 fn blocking_a_mint_removes_the_storage_entry() {
     use crate::storage_types::DataKey;
     let (h, _operator) = with_operator();
-    h.client().allow_mint(&h.mint);
+    h.client().allow_mint(&h.mint, &0);
 
     let key = DataKey::AllowedMint(h.mint.clone());
     let present = |k: &DataKey| {

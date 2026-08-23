@@ -120,7 +120,7 @@ fn admin_can_allow_and_block_a_mint() {
 
     assert!(!client.is_allowed_mint(&h.mint));
 
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
     assert!(client.is_allowed_mint(&h.mint));
 
     client.block_mint(&h.mint);
@@ -133,7 +133,7 @@ fn mint_permissions_are_independent_per_asset() {
     let client = h.client();
     let other = h.other_mint();
 
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     assert!(client.is_allowed_mint(&h.mint));
     assert!(!client.is_allowed_mint(&other));
@@ -143,14 +143,14 @@ fn mint_permissions_are_independent_per_asset() {
 #[should_panic]
 fn allow_mint_requires_admin_auth() {
     let h = Harness::new();
-    h.client().mock_auths(&[]).allow_mint(&h.mint);
+    h.client().mock_auths(&[]).allow_mint(&h.mint, &0);
 }
 
 #[test]
 #[should_panic]
 fn block_mint_requires_admin_auth() {
     let h = Harness::new();
-    h.client().allow_mint(&h.mint);
+    h.client().allow_mint(&h.mint, &0);
 
     h.client().mock_auths(&[]).block_mint(&h.mint);
 }
@@ -276,12 +276,13 @@ fn the_control_surface_publishes_events() {
         .to_xdr(&h.env, &h.escrow),
     );
 
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &500);
     assert_last_event(
         &h,
         MintSet {
             mint: h.mint.clone(),
             allowed: true,
+            release_cap: 500,
             ledger: h.env.ledger().sequence(),
         }
         .to_xdr(&h.env, &h.escrow),
@@ -293,6 +294,7 @@ fn the_control_surface_publishes_events() {
         MintSet {
             mint: h.mint.clone(),
             allowed: false,
+            release_cap: 0,
             ledger: h.env.ledger().sequence(),
         }
         .to_xdr(&h.env, &h.escrow),

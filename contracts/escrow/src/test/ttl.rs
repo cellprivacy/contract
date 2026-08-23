@@ -37,7 +37,7 @@ fn a_fresh_instance_starts_at_the_full_lifetime() {
 fn deposit_keeps_the_instance_alive() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     age_past_threshold(&h);
     let aged = instance_ttl(&h);
@@ -69,7 +69,7 @@ fn mint_changes_keep_the_instance_alive() {
     age_past_threshold(&h);
     assert!(instance_ttl(&h) < INSTANCE_BUMP_AMOUNT);
 
-    h.client().allow_mint(&h.mint);
+    h.client().allow_mint(&h.mint, &0);
     assert_eq!(instance_ttl(&h), INSTANCE_BUMP_AMOUNT);
 }
 
@@ -101,7 +101,7 @@ fn removing_an_operator_keeps_the_instance_alive() {
 #[test]
 fn blocking_a_mint_keeps_the_instance_alive() {
     let h = Harness::new();
-    h.client().allow_mint(&h.mint);
+    h.client().allow_mint(&h.mint, &0);
 
     age_past_threshold(&h);
     assert!(instance_ttl(&h) < INSTANCE_BUMP_AMOUNT);
@@ -114,7 +114,7 @@ fn blocking_a_mint_keeps_the_instance_alive() {
 fn release_and_rotation_keep_the_instance_alive() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
     let operator = Address::generate(&h.env);
     client.add_operator(&operator);
 

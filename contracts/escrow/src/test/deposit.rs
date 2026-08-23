@@ -12,7 +12,7 @@ use crate::Deposit;
 fn deposit_moves_custody_and_tracks_the_locked_total() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
@@ -28,7 +28,7 @@ fn deposit_moves_custody_and_tracks_the_locked_total() {
 fn deposits_accumulate() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
@@ -47,8 +47,8 @@ fn locked_totals_are_tracked_per_mint() {
     let h = Harness::new();
     let client = h.client();
     let other = h.other_mint();
-    client.allow_mint(&h.mint);
-    client.allow_mint(&other);
+    client.allow_mint(&h.mint, &0);
+    client.allow_mint(&other, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
@@ -73,7 +73,7 @@ fn deposit_is_rejected_when_the_mint_is_not_allowed() {
 fn deposit_is_rejected_after_the_mint_is_blocked() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
@@ -88,7 +88,7 @@ fn deposit_is_rejected_after_the_mint_is_blocked() {
 fn deposit_rejects_a_zero_amount() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
@@ -101,7 +101,7 @@ fn deposit_rejects_a_zero_amount() {
 fn deposit_rejects_a_negative_amount() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
@@ -114,7 +114,7 @@ fn deposit_rejects_a_negative_amount() {
 fn deposit_requires_the_depositor_auth() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
@@ -128,7 +128,7 @@ fn deposit_requires_the_depositor_auth() {
 fn deposit_publishes_the_indexer_event() {
     let h = Harness::new();
     let client = h.client();
-    client.allow_mint(&h.mint);
+    client.allow_mint(&h.mint, &0);
 
     let user = Address::generate(&h.env);
     h.fund(&user, 1_000);
