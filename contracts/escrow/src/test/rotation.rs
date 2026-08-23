@@ -82,3 +82,48 @@ fn rotation_is_rejected_against_a_future_index() {
     let (h, operator) = with_operator();
     h.client().reset_smt_root(&operator, &5);
 }
+
+/// Revoking an operator removes the entry rather than writing `false`. Readers
+/// answer the same either way, but a removed key stops costing rent.
+#[test]
+fn revoking_an_operator_removes_the_storage_entry() {
+    use crate::storage_types::DataKey;
+    let (h, operator) = with_operator();
+
+    let key = DataKey::Operator(operator.clone());
+    let present = |k: &DataKey| {
+        h.env
+            .as_contract(&h.escrow, || h.env.storage().persistent().has(k))
+    };
+
+    assert!(present(&key));
+    h.client().remove_operator(&operator);
+    assert!(!present(&key));
+    assert!(!h.client().is_operator(&operator));
+}
+
+#[test]
+fn blocking_a_mint_removes_the_storage_entry() {
+    use crate::storage_types::DataKey;
+    let (h, _operator) = with_operator();
+    h.client().allow_mint(&h.mint, &0);
+
+    let key = DataKey::AllowedMint(h.mint.clone());
+    let present = |k: &DataKey| {
+        h.env
+            .as_contract(&h.escrow, || h.env.storage().persistent().has(k))
+    };
+
+    assert!(present(&key));
+    h.client().block_mint(&h.mint);
+    assert!(!present(&key));
+    assert!(!h.client().is_allowed_mint(&h.mint));
+}
+
+/// The constructor stamps the storage-layout revision so a future upgrade can
+/// tell what it is migrating from.
+#[test]
+fn the_constructor_stamps_the_storage_version() {
+    let (h, _operator) = with_operator();
+    assert_eq!(h.client().version(), crate::storage_types::STORAGE_VERSION);
+}

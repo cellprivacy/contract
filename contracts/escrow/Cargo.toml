@@ -8,9 +8,20 @@ publish = false
 crate-type = ["lib", "cdylib"]
 doctest = false
 
+[features]
+# Tests that need the compiled wasm on disk. Kept behind a flag so `cargo test`
+# works on a clean checkout; `make test-wasm` builds the wasm and enables it.
+wasm-tests = []
+# Exposes the tree internals and the reference tree so the fuzz crate can
+# drive them. Not enabled for a normal build.
+fuzzing = []
+
 [dependencies]
 soroban-sdk = { workspace = true }
 
 [dev-dependencies]
 soroban-sdk = { workspace = true, features = ["testutils"] }
+# Installs .cargo-husky/hooks into .git/hooks on the next cargo test.
+cargo-husky = { workspace = true }
 serde_json = "1"
+proptest = "1"

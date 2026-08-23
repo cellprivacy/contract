@@ -21,16 +21,40 @@ a release build.
 
 ## Deploy
 
+The admin is set by the constructor, inside the deployment transaction. Pass it
+after the `--` separator.
+
+**The admin must be the deploying identity.** The constructor calls
+`admin.require_auth()`, and `stellar contract deploy` signs only with
+`--source`. Naming a different address traps inside the constructor and rolls
+the whole deployment back:
+
+```
+[log] VM call trapped with HostError, __constructor, Error(Auth, InvalidAction)
+```
+
+Deploying on behalf of a separate admin means building the transaction, adding
+that address's authorization entry, collecting its signature and submitting by
+hand. If that is what you need, deploy with the operator identity as admin and
+hand over afterwards with `set_new_admin`, which is designed for it and takes
+both signatures.
+
 ```sh
 stellar keys generate <identity> --network testnet --fund
+ADMIN=$(stellar keys address <identity>)
+
 stellar contract deploy \
   --wasm target/wasm32v1-none/release/escrow.wasm \
   --source <identity> \
-  --network testnet
+  --network testnet \
+  -- --admin $ADMIN
 ```
 
 Prints the contract id (`C...`). Record it, the wasm hash and both transaction
 hashes: the upload and the deploy are separate transactions.
+
+There is no separate initialization step, and no window in which the contract
+exists without an admin.
 
 ## Wire up
 
@@ -39,21 +63,19 @@ can be released until an operator is registered.
 
 ```sh
 C=<contract id>
-ADMIN=$(stellar keys address <identity>)
 NATIVE=$(stellar contract id asset --asset native --network testnet)
 
-# 1. Claim the instance. Requires the incoming admin's own signature.
+# Open an asset for deposits, with the ceiling on a single release.
+# 0 means uncapped, and has to be typed rather than fallen into.
 stellar contract invoke --id $C --source <identity> --network testnet -- \
-  initialize --admin $ADMIN
+  allow_mint --mint $NATIVE --release_cap <stroops or 0>
 
-# 2. Open an asset for deposits. Assets are blocked by default.
-stellar contract invoke --id $C --source <identity> --network testnet -- \
-  allow_mint --mint $NATIVE
-
-# 3. Register the operator that will settle withdrawals.
+# Register the operator that will settle withdrawals.
 stellar contract invoke --id $C --source <identity> --network testnet -- \
   add_operator --operator <operator G...>
 ```
+
+Both emit an event, so the control surface is visible off-chain.
 
 Check the wiring:
 
@@ -63,7 +85,7 @@ stellar contract invoke --id $C --source <identity> --network testnet -- root
 stellar contract invoke --id $C --source <identity> --network testnet -- tree_index
 ```
 
-A freshly initialized instance reports tree index `0` and root
+A freshly deployed instance reports tree index `0` and root
 `8fe6b1689256c0d385f42f5bbe2027a22c1996e110ba97c171d3e5948de92beb`, the empty
 tree root. If `root` differs, something has already been settled against it.
 
@@ -78,7 +100,8 @@ stellar contract invoke --id $C --source <user> --network testnet -- \
 
 **Release** is called by a registered operator and needs a proof. `siblings` is
 a JSON array of 16 hex-encoded 32-byte hashes, least-significant-bit first; see
-`escrow-design.md` §5 and the worked cases in `../contracts/escrow/vectors/smt_vectors.json`.
+`escrow-design.md` §5 and the worked cases in
+`../contracts/escrow/vectors/smt_vectors.json`.
 
 ```sh
 stellar contract invoke --id $C --source <operator> --network testnet -- \
@@ -89,6 +112,20 @@ stellar contract invoke --id $C --source <operator> --network testnet -- \
 The nonce must satisfy `nonce / 65536 == tree_index`, so nonces are allocated in
 blocks of 65 536 per generation and never reused.
 
+**Sweep** recovers balance the contract holds beyond what it recorded as
+custody, which is what a transfer straight to the contract address leaves
+behind. It moves that difference and nothing else, so backed custody is out of
+reach whatever arguments it is given. It works for assets that were never
+opened, which is the usual case for strays.
+
+```sh
+stellar contract invoke --id $C --source <identity> --network testnet -- \
+  sweep --mint <asset C...> --to <recipient G...>
+```
+
+Fails with `#11` when there is no surplus, including when the real balance has
+fallen *below* the record, which a clawback or a fee-on-transfer asset can do.
+
 **Rotate** once a generation's nonces are used up. `expected_tree_index` guards
 against a replay landing twice and stranding a generation:
 
@@ -96,6 +133,30 @@ against a replay landing twice and stranding a generation:
 stellar contract invoke --id $C --source <operator> --network testnet -- \
   reset_smt_root --operator <operator G...> --expected_tree_index <current>
 ```
+
+## Before allowing an asset
+
+`allow_mint` is the only check the contract makes on a token. Everything else
+about that token is assumed, so look at it first.
+
+- **Clawback.** If the issuer set `AUTH_CLAWBACK_ENABLED_FLAG` before the
+  escrow's balance existed, the issuer can take it back. `TotalLocked` would
+  then sit above the real balance and releases fail at the token.
+- **Revocable authorization.** `AUTH_REVOCABLE_FLAG` lets the issuer deauthorize
+  the escrow's balance, with the same effect.
+- **Fee on transfer.** The contract credits `TotalLocked` with the amount it was
+  asked for, not the amount that arrived. A token that deducts a fee on transfer
+  leaves the recorded custody permanently above the real balance, the shortfall
+  grows with every deposit, and `sweep` cannot fix it because there is no
+  surplus to move. Do not allow such a token.
+- **Release ceiling.** `allow_mint` takes one. Pick a figure that a settlement
+  batch will not normally exceed, so a compromised operator key has to make
+  several visible transactions rather than one. It does not stop a drain; it
+  slows one down enough to notice.
+- **Non-standard decimals or supply hooks.** Anything that makes `transfer` do
+  something other than move exactly `amount` breaks the same assumption.
+
+Native XLM has no issuer and none of these apply.
 
 ## Upgrading
 
@@ -122,49 +183,87 @@ follow-up call, because the swap does not touch storage.
 
 ### Testnet
 
-Built with soroban-sdk 27.
+Built with soroban-sdk 27. The admin is set by the constructor, so there is no
+separate initialization transaction.
 
 | | |
 |---|---|
-| Contract | `CAOWXO6MVNRP26XHPCK5KRQ44GUKCRYYCOLQ5PBHKACIAOIXKC6L7ZHR` |
-| Wasm hash | `74b6c9326f04655d9bc0f71e856375bc5d2f682ecdce72dfab352f06e28315eb` |
+| Contract | `CAEFRK572DSBML6RNXWLN5CAVLPLQWIQHX6HRJFEWP4OZRQWC3WNL6FT` |
+| Wasm hash | `762fd08133bd9f7fb2bb633f24cd1b5652f42b697744ba3d2c68a2e3e05554c8` |
+| Storage version | 1 |
 | Network | Test SDF Network ; September 2015 |
 | Admin | `GCGSY4IOU7PG2QN2Z744ZVWMSZD5MYINLPKB5XSGQQECEU7NJBWUWO4Q` |
 | Operator | `GA4LOTZNKXSNACOM56YWMIUXEER3NRD7ABJFSPHZP5VOUNROGJZIST7G` |
 | Asset | native XLM SAC, `CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQVU2HHGCYSC` |
+| Release ceiling | 500000000 stroops, 50 XLM |
 
 | Step | Hash |
 |---|---|
-| Deploy | `435dbc376496922b2fc8181daceae591b40dfca197e41cdf475cb065074d2800` |
-| `initialize` | `cba61f3a91311f8db1285d8277ce7ba56adc89bc2676aee298fc76799c555278` |
-| `allow_mint` | `3e9b69877a66fb881889da9657a63ea9b3b96d1af5a15be10b63386533da8335` |
-| `add_operator` | `f1b1dcc1122a60bbbffb0763bfd805ac2173f1800e67f5e18b80aad1593b02e3` |
-| `deposit` 100 XLM | `c448e4634755b959297cd21a605c3f45de5e891fb6d12508f26f5d53e0a782e4` |
-| `release_funds` nonce 0, 30 XLM | `50c52e332441bce0b88d6394a95265b1f5fa0b563ce856ead250d1c9868d9c20` |
-| `reset_smt_root` to generation 1 | `1640e074cce75d53698e53429b2fdb260cae9cb94e2994accc8b4d1b11212f01` |
-| `release_funds` nonce 65536, 10 XLM | `3d060aa54563f379f1abcada6a1e8e9b6e9bf1181daa83374d2e6143de9405ed` |
+| Upload wasm | `b528cb78838e9bd3bca8b83ddab4b0e8b530ed1cc4b18acb4a1f6c09485de14b` |
+| Deploy, admin set by the constructor | `634f6992936ce08de0d490d47acba446a915a21f37190a66482d5eecf363f78b` |
+| `allow_mint`, ceiling 50 XLM | `379b4a801fda4ffd70794944f6cc98410e96e64d643b924e626559dd704605f7` |
+| `add_operator` | `1ebf4f1986659cca9a9cc191534c204563df4d9da27451b5e6855658ecd3c2f0` |
+| `deposit` 100 XLM | `8eae10aaf85c806696b49a03affcb2e442c388e887b4987e2216bf8eb4766452` |
+| `release_funds` nonce 0, 30 XLM | `505c962f52f91864e547d679588a1f5f75ba18e2b739a86201bf8787eb3a3040` |
+| `release_funds` nonce 1, 10 XLM | `6949d1073458fbc65c6e775eb1a4207ce3003d71993dd1e8d6bd08b92f83d9af` |
+| `release_funds` nonce 2, 10 XLM | `fa8619db6e094968684c354a1bbcc4e1aea04cf2663ff29899194664f74f2c4b` |
+| Duplicate of nonce 2, **failed on chain** | `16765ff261831a1c44cd8b1b794e151afa2b7c6f475fbf7d64569ef38a6802b9` |
+| Transfer 7 XLM straight to the contract, bypassing `deposit` | `3f2c7bbf76ec4fd8bffc00ef1fa47c7c4730f377f374c248ec6ce4b70e9ce55b` |
+| `sweep`, recovered 7 XLM | `af84535d02965683c9b905976ab876ef6347af7b5c351a3e5f62846ee0eec427` |
 
-`total_locked` reads back `600000000` stroops. The release proofs were taken
-verbatim from `smt_vectors.json`, so that file is confirmed usable by an
-off-chain prover against a live network.
+Read back after the run: `version` 1, `release_cap` 500000000, `total_locked`
+500000000, and the contract's real XLM balance also 500000000. The last two
+agree exactly, which is what a sweep leaves behind.
+
+The release proofs were taken verbatim from `smt_vectors.json`, so that file is
+confirmed usable by an off-chain prover against a live network.
+
+The duplicate withdrawal is a genuine on-chain failure, not a simulation error.
+It was built and simulated against the state before nonce 2 was spent, then
+submitted after the original landed, which is what happens when an operator's
+submission is beaten to the ledger. It reached ledger 4290454 and failed there
+with contract error `#6`. No XLM moved.
+
+Refused at simulation on the same instance, so no ledger entry and no fee:
+
+| Attempt | Error |
+|---|---|
+| `release_funds` of 60 XLM against a 50 XLM ceiling | `#12` `ReleaseCapExceeded` |
+| `sweep` with the balance equal to the record | `#11` `NoSurplus` |
 
 ### Upgrade verified
 
-A second instance, `CA3ZXQF2BKFH2KNNGQAYJAOJZ7N5XPUTQU5BS2PL5TCJT6XKKFPHI75E`,
-was deployed, loaded with state, then upgraded from wasm
-`74b6c932...15eb` to `0995fce6...2df4` in transaction
-`69f6f7f1686c4242ca861d0476d0b68b75909e77a895f12b1b0ce0cbb7580594`.
+Verified twice, in-crate and on the network.
 
-Admin, operator set, mint permission, locked total and tree index all read back
-unchanged afterwards, and a further deposit succeeded on the new executable.
-An `upgrade` submitted from the operator was refused: simulation demanded the
-admin key.
+`state_survives_an_upgrade` in `src/test/wasm.rs` uploads the compiled wasm,
+deploys through a factory so the constructor runs under real authorization,
+loads the instance with a deposit, an operator, a mint permission and a
+rotation, then upgrades and reads every piece of state back. Run it with
+`make test-wasm`.
+
+On testnet, instance `CA3ZXQF2BKFH2KNNGQAYJAOJZ7N5XPUTQU5BS2PL5TCJT6XKKFPHI75E`
+was upgraded in transaction
+`69f6f7f1686c4242ca861d0476d0b68b75909e77a895f12b1b0ce0cbb7580594`, and a
+second instance was upgraded mid-run with fifteen nonces already spent, in
+`9e578fb38e0367a2ecb2894957e507b78dccfb0325a4d0fa96f910fc47aa74e3`. In both
+cases admin, operator set, mint permission, locked total and tree index read
+back unchanged, and further calls settled normally on the new executable. An
+`upgrade` submitted by the operator was refused: simulation demanded the admin
+key.
+
+Both instances predate the constructor, so they are also the evidence that a
+contract deployed without `upgrade` cannot be upgraded at all.
 
 ### Superseded
 
-`CDORRV4DXCI73L23PG5IA7WAO4XH4WMGX3KOCCSOYAIMWW3A5C3DTJ36` was the previous
-record, built with soroban-sdk 26 before the `upgrade` entrypoint existed. It
-cannot be upgraded and is left in place only as history.
+`CA24BT7IVIXD3H4J3LNDLOL2ORETLSIQLNZO6PE4EBCNZC55MONZMB7K` carried the ceiling
+and sweep but predates the checked deposit credit.
+`CBH3J73JTD77DUQ6FAGVOPFTY3CDE6V6DEFW6CH4QQQGCINBB76KLKTY` was the first
+constructor deployment, with neither.
+`CAOWXO6MVNRP26XHPCK5KRQ44GUKCRYYCOLQ5PBHKACIAOIXKC6L7ZHR` and
+`CDORRV4DXCI73L23PG5IA7WAO4XH4WMGX3KOCCSOYAIMWW3A5C3DTJ36` are older still and
+were initialized in a follow-up transaction. All are left in place as history;
+none matches the current wasm.
 
 ### Mainnet
 

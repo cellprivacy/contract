@@ -1,0 +1,31 @@
+[package]
+name = "escrow-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+soroban-sdk = { version = "27", features = ["testutils"] }
+
+[dependencies.escrow]
+path = ".."
+features = ["fuzzing"]
+
+[[bin]]
+name = "smt"
+path = "fuzz_targets/smt.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "release_funds"
+path = "fuzz_targets/release_funds.rs"
+test = false
+doc = false
+bench = false
