@@ -70,6 +70,11 @@ impl EscrowContract {
         if amount <= 0 {
             panic_with_error!(&e, EscrowError::InvalidAmount);
         }
+        // Mirror of the guard in release_funds. Depositing from the escrow to
+        // itself moves nothing but would still credit the recorded custody.
+        if from == e.current_contract_address() {
+            panic_with_error!(&e, EscrowError::InvalidRecipient);
+        }
         if !storage::is_allowed_mint(&e, &mint) {
             panic_with_error!(&e, EscrowError::MintNotAllowed);
         }
@@ -156,7 +161,7 @@ impl EscrowContract {
         let escrow = e.current_contract_address();
         token::Client::new(&e, &mint).transfer(&escrow, &to, &amount);
 
-        event::release(&e, &to, &mint, amount, nonce, new_root);
+        event::release(&e, &to, &mint, amount, total - amount, nonce, new_root);
     }
 
     // ---------- tree rotation ----------

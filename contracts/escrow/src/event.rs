@@ -20,7 +20,7 @@ pub struct Deposit {
 /// Emitted when an operator releases custody back to a user.
 ///
 /// Topics: `("release", to, mint)`.
-/// Data: a map of `amount`, `nonce`, `new_root`, `ledger`.
+/// Data: a map of `amount`, `total_locked`, `nonce`, `new_root`, `ledger`.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Release {
@@ -29,19 +29,21 @@ pub struct Release {
     #[topic]
     pub mint: Address,
     pub amount: i128,
+    pub total_locked: i128,
     pub nonce: u64,
     pub new_root: BytesN<32>,
     pub ledger: u32,
 }
 
-/// Emitted when the admin rotates the withdrawal tree.
+/// Emitted when an operator rotates the withdrawal tree.
 ///
-/// Topics: `("rotate",)`. Data: a map of `tree_index`, `new_root`.
+/// Topics: `("rotate",)`. Data: a map of `tree_index`, `new_root`, `ledger`.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Rotate {
     pub tree_index: u64,
     pub new_root: BytesN<32>,
+    pub ledger: u32,
 }
 
 pub fn deposit(e: &Env, from: &Address, mint: &Address, amount: i128, total_locked: i128) {
@@ -55,11 +57,13 @@ pub fn deposit(e: &Env, from: &Address, mint: &Address, amount: i128, total_lock
     .publish(e);
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn release(
     e: &Env,
     to: &Address,
     mint: &Address,
     amount: i128,
+    total_locked: i128,
     nonce: u64,
     new_root: BytesN<32>,
 ) {
@@ -67,6 +71,7 @@ pub fn release(
         to: to.clone(),
         mint: mint.clone(),
         amount,
+        total_locked,
         nonce,
         new_root,
         ledger: e.ledger().sequence(),
@@ -78,21 +83,31 @@ pub fn rotate(e: &Env, tree_index: u64, new_root: BytesN<32>) {
     Rotate {
         tree_index,
         new_root,
+        ledger: e.ledger().sequence(),
     }
     .publish(e);
 }
 
 /// Emitted when the admin replaces the contract executable.
 ///
-/// Topics: `("upgraded",)`. Data: a map of `new_wasm_hash`.
+/// Topics: `("upgraded",)`. Data: a map of `new_wasm_hash`, `ledger`.
+///
+/// The host publishes its own `executable_update` system event for the same
+/// swap; this one exists so an indexer already following this contract sees it
+/// without subscribing to system events.
 #[contractevent]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Upgraded {
     pub new_wasm_hash: BytesN<32>,
+    pub ledger: u32,
 }
 
 pub fn upgraded(e: &Env, new_wasm_hash: BytesN<32>) {
-    Upgraded { new_wasm_hash }.publish(e);
+    Upgraded {
+        new_wasm_hash,
+        ledger: e.ledger().sequence(),
+    }
+    .publish(e);
 }
 
 /// Emitted when admin rights move to another address.
