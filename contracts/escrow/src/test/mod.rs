@@ -1,5 +1,6 @@
 mod admin;
 mod deposit;
+mod hostile_token;
 mod release;
 mod rotation;
 mod smt_proofs;

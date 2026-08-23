@@ -149,3 +149,19 @@ fn deposit_publishes_the_indexer_event() {
         &[expected.to_xdr(&h.env, &h.escrow)][..]
     );
 }
+
+/// Crediting must not be allowed to wrap. A wrapped total would under-report
+/// custody, which is the direction that loses money.
+#[test]
+#[should_panic(expected = "Error(Contract, #13)")]
+fn a_deposit_that_would_overflow_the_record_is_rejected() {
+    let h = Harness::new();
+    let client = h.client();
+    client.allow_mint(&h.mint, &0);
+
+    let user = Address::generate(&h.env);
+    h.fund(&user, i128::MAX);
+
+    client.deposit(&user, &h.mint, &(i128::MAX / 2 + 1));
+    client.deposit(&user, &h.mint, &(i128::MAX / 2 + 1));
+}
